@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.14 1999/01/08 21:24:07 lenst Exp $
+;; Version: $Id: corba.el,v 1.15 1999/04/19 18:21:31 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1999/01/08 21:24:07 $|$Revision: 1.14 $||
+;; $Date: 1999/04/19 18:21:31 $|$Revision: 1.15 $||
 
 ;;; Commentary:
 
@@ -73,6 +73,14 @@ or the IOR.")
   "*Reference to the CORBA InterfaceRepository.
 This should be the name of a file where the service IOR is stored
 or the IOR.")
+
+(defvar corba-principal ""
+  "*Octet sequence used for the principal field in the GIOP message.
+Used by ORBit for its cookie.")
+
+(defvar corba-explicit-any nil
+  "*If non-nil, an explicit any struct will be returned for any result.
+If nil, the actual value will be returned.")
 
 
 ;;;; Exceptions
@@ -190,7 +198,7 @@ or the IOR.")
 (defvar corba-work-buffer nil)
 
 (defun corba-get-work-buffer ()
-  (unless corba-work-buffer
+  (unless (and corba-work-buffer (buffer-live-p corba-work-buffer))
     (setq corba-work-buffer
           (generate-new-buffer " *CDR*"))
     (let ((ob (current-buffer)))
@@ -244,7 +252,7 @@ or the IOR.")
 
 (defun corba-write-sequence (s el-cdr)
   (corba-write-ulong (length s))
-  (loop for e in s do (funcall el-cdr e)))
+  (mapcar el-cdr s))
 
 (defun corba-make-encapsulation (closure &rest args)
   (corba-in-work-buffer
@@ -260,8 +268,9 @@ or the IOR.")
                                         ; lost info
       ((tk_string) (setq params (append params (list 0))))
       ((tk_sequence) (setq params (append params (list 0))))
-      ((tk_objref) (setq params (append params
-                                        (list "IDL:omg.org/CORBA/Object:1.0"))))
+      ((tk_objref)
+       (setq params (append params
+                            (list "IDL:omg.org/CORBA/Object:1.0"))))
       ((tk_enum) (error "Can't marshal ENUM TypeCode")))
     (corba-write-ulong (symbol-value kind))
     (let ((pspec (get kind 'tk-params)))
@@ -270,10 +279,10 @@ or the IOR.")
              (corba-write-osequence
               (corba-make-encapsulation
                (lambda (params spec)
-                 (mapcar 'corba-write-marshal params spec))
+                 (mapcar* 'corba-marshal params spec))
                params (cdr pspec))))
 	    (t
-             (mapcar 'corba-write-marshal params pspec))))))
+             (mapcar* 'corba-marshal params pspec))))))
 
 
 (defun corba-write-ior (objref)
@@ -284,16 +293,38 @@ or the IOR.")
 		  (corba-write-osequence (cdr tagpair)))))
 
 
-(defun corba-write-marshal (arg type)
+(defun corba-typecode-of (arg)
+  (etypecase arg
+    (number 'tk_long)
+    (string 'tk_string)
+    (corba-object 'tk_objref)
+    (corba-struct (corba-struct-typecode (car arg)))
+    ((or cons vector)
+     (let ((elem (corba-typecode-of (elt arg 0))))
+       (make-corba-typecode 'tk_sequence
+                            (list elem 0))))))
+
+(defun corba-marshal-any (arg)
+  (let ((type-code
+         (if (corba-any-p arg)
+             (prog1 (corba-any-typecode arg)
+               (setq arg (corba-any-value arg)))
+           (corba-typecode-of arg))))
+    (if nil
+        type-code
+      (corba-marshal type-code 'tk_TypeCode)
+      (corba-marshal arg type-code))))
+
+
+
+(defun corba-marshal (arg type)
   (let (kind params)
     (cond ((consp type)
 	   (setq kind (car type)
 		 params (cdr type)))
 	  (t (setq kind type)))
     (case kind
-      ((tk_any)
-       (corba-write-marshal (corba-any-typecode arg) 'tk_TypeCode)
-       (corba-write-marshal (corba-any-value arg) (corba-any-typecode arg)))
+      ((tk_any) (corba-marshal-any arg))
       ((tk_octet tk_char) (corba-write-octet arg))
       ((tk_boolean bool) (corba-write-bool arg))
       ((tk_ushort tk_short) (corba-write-short arg))
@@ -301,25 +332,24 @@ or the IOR.")
       ((tk_string string) (corba-write-string arg))
       ((osequence) (corba-write-osequence arg))
       ((tk_objref object) (corba-write-ior arg))
-      ((tk_alias) (corba-write-marshal arg (third params)))
+      ((tk_alias) (corba-marshal arg (third params)))
       ((tk_TypeCode) (corba-write-typecode arg))
       ((sequence tk_sequence)
        (let ((eltype (first params)))
 	 (if (eq eltype 'tk_octet)
 	     (corba-write-osequence arg)
-           (corba-write-ulong (length arg))
-           (loop for e in arg do (corba-write-marshal e eltype)))))
+           (corba-write-sequence arg (lambda (d) (corba-marshal d eltype))))))
       ((tk_struct)
        (mapcar (lambda (el)
-                  (corba-write-marshal (cdr (assq (corba-lispy-name (first el)) arg))
+                  (corba-marshal (cdr (assq (corba-lispy-name (first el)) arg))
                                (second el)))
             (third params)))
       ((anon-struct)
        (loop for type in params
 	     for arg in arg
-	     collect (corba-write-marshal arg type)))
+	     collect (corba-marshal arg type)))
       (t
-       (corba-write-marshal arg (or (get type 'corba-typecode)
+       (corba-marshal arg (or (get type 'corba-typecode)
                             (error "MARSHAL: %s" type)))))))
 
 
@@ -412,9 +442,11 @@ or the IOR.")
 
 (defun corba-read-any ()
   (let ((tc (corba-read-typecode)))
-    (make-corba-any
-     :typecode tc
-     :value (corba-unmarshal tc))))
+    (if corba-explicit-any
+        (make-corba-any
+         :typecode tc
+         :value (corba-unmarshal tc))
+      (corba-unmarshal tc))))
 
 (defun corba-unmarshal (type)
   (let (kind params)
@@ -617,10 +649,10 @@ the server that no response is excpected."
         (corba-write-octet (if (memq 'no-response flags) 0 1)) ;respons expected
         (corba-write-osequence (corba-object-key object))
         (corba-write-string (corba-opdef-name operation))
-        (corba-write-osequence "")		;principal
+        (corba-write-osequence corba-principal)		;principal
         (loop for arg in (corba-request-arguments req)
               for desc in (corba-opdef-inparams operation)
-              do (corba-write-marshal arg (cdr desc)))))
+              do (corba-marshal arg (cdr desc)))))
       (corba-write-giop-set-message-length)
       (process-send-region client (point-min) (point-max))
       ;;(message "Request %d sent" (corba-request-req-id req))
@@ -800,6 +832,27 @@ Result is the list of the values of the out parameters."
       (and (null (corba-object-key obj))
            (zerop (length (corba-object-profiles obj))))))
 
+
+;; Interface:
+(defun corba-object-narrow (obj id)
+  (unless (corba-object-is-a obj id)
+    (error "Cannot narrow to '%s', object %s" id obj))
+  (setf (corba-object-id obj) id))
+
+(defun corba-object-auto-narrow (obj)
+  (let ((orig-id (corba-object-id obj)))
+    (let ((interface-def 
+           (corba-invoke obj "_interface")))
+      (let ((new-id
+             
+             )))
+      
+
+      )
+    
+    
+    ))
+
 
 ;;;; Interfaces and operations
 
@@ -838,11 +891,13 @@ Result is the list of the values of the out parameters."
 		 corba-local-repository)
 	interface))
 
+(defun corba-has-interface-p (id)
+  (gethash id corba-local-repository))
 
 (defun corba-get-interface (id)
   (or (gethash id corba-local-repository)
       (setf (gethash id corba-local-repository)
-	    (corba-interface-from-def id))))
+	    (corba-interface-from-id id))))
 
 
 (defun corba-get-typecode (id)
@@ -969,6 +1024,15 @@ of fields can be defaulted (numbers and strings)."
                                     (corba-default-from-type (second nv))
                                   val))))
                       fields)))))))
+
+(defun corba-struct-p (sexp)
+  (and (consp sexp)
+       (stringp (car sexp))
+       (loop for x = (cdr sexp) then (cdr x)
+             always (and (consp x)
+                         (and (consp (car x))
+                              (symbolp (caar x))))
+             until (null (cdr x)))))
 
 (defun corba-default-from-type (typecode)
   ;; Return a suitable default value for the given TYPECODE.
@@ -1129,26 +1193,35 @@ id for the operation."
      :outparams (nreverse outpars))))
 
 
-(defun corba-interface-from-def (def)
-  (when (stringp def)
-    (let ((id def))
-      (setq def (car (corba-invoke (corba-get-ir) "lookup_id" id)))
-      (when (corba-object-is-nil def)
-	(error "InterfaceRepository do not know about %s" id))))
-  (let ((id (car (corba-invoke def "_get_id")))
-        (mess ";;; Getting interface %s %s")
-        (progr ""))
-    (message mess id progr)
+(defun corba-interface-from-id (id)
+  (let ((def (car (corba-invoke (corba-get-ir) "lookup_id" id))))
+    (when (corba-object-is-nil def)
+      (error "InterfaceRepository do not know about %s" id))
+    (corba-interface-from-def id def)))
+
+(defun corba-interface-from-def (id def)
+  (unless id
+    (setq id (car (corba-invoke def "_get_id"))))
+  (let ((mess "Getting interface %s %s")
+        (progress ""))
+    (message mess id progress)
     (make-corba-interface
      :id id
-     :inherit (or (mapcar #'corba-get-interface
+     :inherit (or (mapcar #'(lambda (idef)
+                              (corba-get-interface
+                               (car (corba-invoke idef "_get_id"))))
                           (car (corba-invoke def "_get_base_interfaces")))
                   (list corba-object-interface))
      :operations (mapcar (lambda (o)
                            (prog1 (corba-opdef-from-ir o)
-                             (setq progr (concat progr "."))
-                             (message mess id progr)))
+                             (setq progress (concat progress "."))
+                             (message mess id progress)))
                          (car (corba-invoke def "contents" 7 t))))))
+
+(defun corba-enter-interface-def (def)
+  (let ((id (car (corba-invoke def "_get_id"))))
+    (unless (corba-has-interface-p id)
+      (corba-add-interface (corba-interface-from-def id def)))))
 
 
 (defun corba-typecode-from-def (def)
@@ -1159,19 +1232,22 @@ id for the operation."
       (when (corba-object-is-nil def)
 	(error "InterfaceRepository do not know about %s" id))))
   (let ((typecode
-         (car (corba-invoke def '("IDL:omg.org/CORBA/IDLType:1.0" "_get_type")))))
+         (car (corba-invoke def
+                            '("IDL:omg.org/CORBA/IDLType:1.0" "_get_type")))))
     (corba-simplify-type typecode)))
 
 ;;;; Name Service Shortcuts
 
 (defun corba-resolve (&rest names)
-  (let ((n (mapcar (lambda (id)
+  (let ((nsid "IDL:omg.org/CosNaming/NamingContext:1.0")
+	(n (mapcar (lambda (id)
                      (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
                                    'id id 'kind ""))
                    names))
         (ns (corba-orb-resolve-initial-references (corba-orb-init)
                                                   "NameService")))
-    (first (corba-invoke ns "resolve" n))))
+    (assert (corba-object-is-a ns nsid))
+    (first (corba-invoke ns (list nsid "resolve") n))))
 
 
 ;;; corba.el ends here

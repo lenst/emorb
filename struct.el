@@ -223,3 +223,70 @@
 			   'id id 'kind ""))
 	   names)
    obj))
+
+
+(defun corba-test-resolve1 ()
+  (let* ((names '("dev"))
+         (nsid "IDL:omg.org/CosNaming/NamingContext:1.0")
+         (n (mapcar (lambda (id)
+                      (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
+                                   'id id 'kind ""))
+                   names))
+        (ns (corba-orb-resolve-initial-references (corba-orb-init)
+                                                  "NameService")))
+    (assert (corba-object-is-a ns nsid))
+
+    (dotimes (i 100)
+      (corba-invoke ns "resolve" n))))
+
+(defun corba-test-resolve2 ()
+  (let* ((names '("dev"))
+         (times 100)
+         (nsid "IDL:omg.org/CosNaming/NamingContext:1.0")
+         (n (mapcar (lambda (id)
+                      (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
+                                   'id id 'kind ""))
+                   names))
+         (ns (corba-orb-resolve-initial-references (corba-orb-init)
+                                                  "NameService"))
+         (reqs (make-vector times nil))
+         (args (list n)))
+    
+    (assert (corba-object-is-a ns nsid))
+
+    (dotimes (i times)
+      (let ((req (corba-object-create-request ns "resolve" args)))
+        (aset reqs i req)
+        (corba-request-send req)))
+    (dotimes (i times)
+      (let ((req (aref reqs i)))
+        (corba-request-get-response req)
+        '(message "%d: %s" i (corba-request-result req))))))
+
+(defun corba-test-resolve ()
+  (let* ((names '("dev"))
+         (times 100)
+         (nsid "IDL:omg.org/CosNaming/NamingContext:1.0")
+         (n (mapcar (lambda (id)
+                      (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
+                                    'id id 'kind ""))
+                    names))
+         (ns (corba-orb-resolve-initial-references (corba-orb-init)
+                                                   "NameService"))
+         (reqs (make-vector times nil))
+         (args (list n)))
+    
+    (assert (corba-object-is-a ns nsid))
+
+    (loop for sendIndex from 0
+          for recvIndex from -40 below times
+          when (< sendIndex times)
+          do (let ((req (corba-object-create-request ns "resolve" args)))
+               (aset reqs sendIndex req)
+               (corba-request-send req))
+          when (>= recvIndex 0)
+          do (let ((req (aref reqs recvIndex)))
+               (corba-request-get-response req)
+               '(message "%d: %s" i (corba-request-result req))))))
+
+
