@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.9 1998/02/21 21:42:00 lenst Exp $
+;; Version: $Id: corba.el,v 1.10 1998/03/01 17:26:00 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1998/02/21 21:42:00 $|$Revision: 1.9 $||
+;; $Date: 1998/03/01 17:26:00 $|$Revision: 1.10 $||
 
 ;;; Commentary:
 
@@ -253,8 +253,8 @@ or the IOR.")
 
 
 (defun corba-write-ior (objref)
-  (corba-write-string (corba-object-id objref))
-  (corba-write-sequence (corba-object-profiles objref)
+  (corba-write-string (if objref (or (corba-object-id objref) "") ""))
+  (corba-write-sequence (if objref (corba-object-profiles objref) nil)
 		(lambda (tagpair)
 		  (corba-write-ulong (car tagpair))
 		  (corba-write-osequence (cdr tagpair)))))
