@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.27 2004/04/19 14:02:44 lenst Exp $
+;; Version: $Id: corba.el,v 1.28 2004/11/12 13:48:54 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2004/04/19 14:02:44 $|$Revision: 1.27 $||
+;; $Date: 2004/11/12 13:48:54 $|$Revision: 1.28 $||
 
 ;;; Commentary:
 
@@ -62,7 +62,8 @@
 
 (provide 'corba)
 
-(eval-when-compile (require 'cl))
+(require 'cl)
+;;(eval-when-compile (require 'cl))
 (eval-when-compile (load "cl-extra"))   ; This seems to fix some strange autoloading
                                         ; problem.
 
