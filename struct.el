@@ -135,7 +135,8 @@
 
 
 (defun test-mass ()
-  (loop for r
+  (loop with ir = (corba-get-ir)
+        for r
 	in (loop for i to 1000 collect
 		 (let ((req
 			(make-corba-request
@@ -226,7 +227,7 @@
   (interactive)
   (let* ((orb (corba-orb-init))
          (ns  (corba-orb-resolve-initial-references orb "NameService")))
-    (destructuring-bind (binding-list binding-iter)
+    (multiple-value-bind (binding-list binding-iter)
         (corba-invoke ns "list" 1000)
       (unless (corba-object-is-nil binding-iter)
         (corba-invoke binding-iter "destroy"))
@@ -253,8 +254,7 @@
   (let ((n (mapcar (lambda (id)
                      (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
                                    'id id 'kind ""))
-                   names)))
-    (car (corba-invoke (corba-orb-resolve-initial-references
-                        (corba-orb-init)
-                        "NameService")
-                       "resolve" n))))
+                   names))
+        (ns (corba-orb-resolve-initial-references (corba-orb-init)
+                                                  "NameService")))
+    (first (corba-invoke ns "resolve" n))))
