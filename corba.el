@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.12 1998/07/17 21:56:47 lenst Exp $
+;; Version: $Id: corba.el,v 1.13 1998/08/21 16:10:36 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1998/07/17 21:56:47 $|$Revision: 1.12 $||
+;; $Date: 1998/08/21 16:10:36 $|$Revision: 1.13 $||
 
 ;;; Commentary:
 
@@ -69,7 +69,7 @@
 This should be the name of a file where the name service IOR is stored
 or the IOR.")
 
-(defvar corba-interface-repository "/tmp/ir"
+(defvar corba-interface-repository "/tmp/InterfaceRepository"
   "*Reference to the CORBA InterfaceRepository.
 This should be the name of a file where the service IOR is stored
 or the IOR.")
@@ -862,14 +862,17 @@ object is known to the ORB, either from an explicit definition of the
 interface or from an Interface Repository.
     OP can also be a list (INTERFACE-ID OP-NAME) to use the operation definition
 from a specific interface inditified by INTERFACE-ID, the interface repository ID."
-  (let* ((interface (corba-get-interface
-                     (if (consp op)
+  (let* ((interface-id (if (consp op)
                          (first op)
-                       (corba-object-id object))))
+                       (corba-object-id object)))
+         (interface (corba-get-interface interface-id))
 	 (opdef (corba-find-opdef interface
                                   (if (consp op)
                                       (second op)
                                     op))))
+    (unless opdef
+      (error "Undefined operation %s for interface %s"
+             op interface-id))
     (unless (= (length args)
 	       (length (corba-opdef-inparams opdef)))
       (error "Wrong number of arguments to operation"))
@@ -1158,6 +1161,17 @@ id for the operation."
   (let ((typecode
          (car (corba-invoke def '("IDL:omg.org/CORBA/IDLType:1.0" "_get_type")))))
     (corba-simplify-type typecode)))
+
+;;;; Name Service Shortcuts
+
+(defun corba-resolve (&rest names)
+  (let ((n (mapcar (lambda (id)
+                     (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
+                                   'id id 'kind ""))
+                   names))
+        (ns (corba-orb-resolve-initial-references (corba-orb-init)
+                                                  "NameService")))
+    (first (corba-invoke ns "resolve" n))))
 
 
 ;;; corba.el ends here
