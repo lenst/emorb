@@ -1,0 +1,2 @@
+* marhsling av argument borde styras av typern inte argumentlistan
+så att för få argument upptäcks.

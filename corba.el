@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.13 1998/08/21 16:10:36 lenst Exp $
+;; Version: $Id: corba.el,v 1.14 1999/01/08 21:24:07 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1998/08/21 16:10:36 $|$Revision: 1.13 $||
+;; $Date: 1999/01/08 21:24:07 $|$Revision: 1.14 $||
 
 ;;; Commentary:
 
@@ -507,16 +507,16 @@ or the IOR.")
 
 (defun corba-read-ior ()
   (let* ((type-id (corba-read-string))
-	 (profiles (corba-read-sequence #'corba-read-tagged-component))
-	 (reference (make-corba-object
-		     :id type-id
-		     :profiles profiles)))
-    (loop for (tag . encaps) in profiles
+	 (reference (make-corba-object :id type-id)))
+    (loop repeat (corba-read-ulong)
+          for tag = (corba-read-ulong)
+          for encaps = (corba-read-osequence)
 	  if (= tag 0)
 	  do (corba-in-encapsulation encaps
-                                   #'corba-read-iiop-profile-body reference)
-	  (return))
-    reference))
+                                   #'corba-read-iiop-profile-body reference))
+    (if (corba-object-key reference)
+        reference
+      nil)))
 
 
 ;;;; Connection handling
@@ -796,9 +796,9 @@ Result is the list of the values of the out parameters."
 
 ;; Interface:
 (defun corba-object-is-nil (obj)
-  (and (null (corba-object-key obj))
-       (zerop (length (corba-object-profiles obj)))))
-
+  (or (null obj)
+      (and (null (corba-object-key obj))
+           (zerop (length (corba-object-profiles obj))))))
 
 
 ;;;; Interfaces and operations

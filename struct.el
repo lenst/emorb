@@ -20,7 +20,7 @@
                                       (corba-struct-get binding 'binding-name)))))
               (if (eq (corba-struct-get binding 'binding-type) 1)
                   (cons 'context (ls :start child :avoid avoid))
-                (corba-object-id child)))))))))
+                (and child (corba-object-id child))))))))))
 
 
 ;;;; IR-test
@@ -41,7 +41,7 @@
     (car (corba-request-invoke req)) ))
 
 (defun container.lookup (obj name)
- (corba-check-type obj "IDL:omg.org/CORBA/Container:1.0")
+  (corba-check-type obj "IDL:omg.org/CORBA/Container:1.0")
   (let ((req
 	 (make-corba-request
 	  :object obj
