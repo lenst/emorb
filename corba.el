@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.16 1999/11/09 16:14:44 lenst Exp $
+;; Version: $Id: corba.el,v 1.17 2000/03/17 19:29:39 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1999/11/09 16:14:44 $|$Revision: 1.16 $||
+;; $Date: 2000/03/17 19:29:39 $|$Revision: 1.17 $||
 
 ;;; Commentary:
 
@@ -679,7 +679,7 @@ the server that no response is excpected."
 	    (status (corba-read-ulong)))
        (signal 'corba-system-exception
 	       (list id minor status))))
-    ((4)				; Forward
+    ((3)				; Forward
      (setf (corba-object-forward (corba-request-object req))
 	   (corba-read-ior))
      (corba-request-send req)
@@ -749,11 +749,10 @@ If FLAGS is list containing the symbols `no-wait', the function will
 not wait for the response if it is not immediately available. Returns
 `t' if the response has arrived otherwise returns `nil' (will always
 return `t' unless flags contains `no-wait'.)"
-  (let* ((client (corba-request-client request)))
-    (loop while (eq t (corba-request-result request))
-	  do (corba-get-next-respons-1 client)
-	  until (memq 'no-wait flags)
-	  do (accept-process-output)))
+  (loop while (eq t (corba-request-result request))
+        do (corba-get-next-respons-1 (corba-request-client request))
+        until (memq 'no-wait flags)
+        do (accept-process-output))
   (not (eq t (corba-request-result request))))
 
 
