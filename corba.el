@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.20 2000/06/25 17:14:22 lenst Exp $
+;; Version: $Id: corba.el,v 1.21 2000/08/03 06:17:09 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2000/06/25 17:14:22 $|$Revision: 1.20 $||
+;; $Date: 2000/08/03 06:17:09 $|$Revision: 1.21 $||
 
 ;;; Commentary:
 
@@ -1057,6 +1057,8 @@ of fields can be defaulted (numbers and strings)."
     ((tk_objref) (make-corba-object))))
 
 ;;;; IR -- initial repository contents
+
+(corba-add-interface corba-object-interface)
 
 (corba-add-interface
  (make-corba-interface
