@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.18 2000/05/15 17:10:15 lenst Exp $
+;; Version: $Id: corba.el,v 1.19 2000/06/07 14:51:34 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2000/05/15 17:10:15 $|$Revision: 1.18 $||
+;; $Date: 2000/06/07 14:51:34 $|$Revision: 1.19 $||
 
 ;;; Commentary:
 
@@ -840,18 +840,13 @@ Result is the list of the values of the out parameters."
   (setf (corba-object-id obj) id))
 
 (defun corba-object-auto-narrow (obj)
-  (let ((orig-id (corba-object-id obj)))
-    (let ((interface-def 
-           (corba-invoke obj "_interface")))
-      (let ((new-id
-             
-             )))
-      
-
-      )
-    
-    
-    ))
+  (let ((interface
+         (corba-get-objects-interface obj)))
+    (unless interface
+      (error "The object cannot tell us its interface: %s" obj))
+    (let ((new-id (corba-interface-id interface)))
+      (unless (equal new-id (corba-object-id obj))
+        (setf (corba-object-id obj) new-id)))))
 
 
 ;;;; Interfaces and operations
@@ -914,7 +909,12 @@ Result is the list of the values of the out parameters."
             (corba-interface-from-def-cached nil idef)))
     (corba-system-exception
      (message "_interface: %s" exc)
+     nil)
+    (end-of-buffer
+     ;; Work around ORBit bug in exception marshaling
+     (message "_interface: %s" exc)
      nil)))
+
 
 ;; Interface:
 (defun corba-object-create-request (object op args)
@@ -1264,6 +1264,20 @@ id for the operation."
                                                   "NameService")))
     (assert (corba-object-is-a ns nsid))
     (first (corba-invoke ns (list nsid "resolve") n))))
+
+
+;;;; ORBit hacks
+
+(defun corba-setup-orbit-cookie ()
+  (setq corba-principal
+        (let ((cookie-file
+               (format "/tmp/orbit-%s/cookie" user-login-name)))
+          (unless (file-exists-p cookie-file)
+            (error "No ORBit cookie file"))
+          (save-excursion
+            (set-buffer (find-file-noselect cookie-file))
+            (concat (buffer-string) "\0")))))
+
 
 
 ;;; corba.el ends here
