@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.11 1998/03/01 18:10:58 lenst Exp $
+;; Version: $Id: corba.el,v 1.12 1998/07/17 21:56:47 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1998/03/01 18:10:58 $|$Revision: 1.11 $||
+;; $Date: 1998/07/17 21:56:47 $|$Revision: 1.12 $||
 
 ;;; Commentary:
 
@@ -297,7 +297,7 @@ or the IOR.")
       ((tk_octet tk_char) (corba-write-octet arg))
       ((tk_boolean bool) (corba-write-bool arg))
       ((tk_ushort tk_short) (corba-write-short arg))
-      ((tk_ulong tk_long) (corba-write-ulong arg))
+      ((tk_ulong tk_long tk_enum) (corba-write-ulong arg))
       ((tk_string string) (corba-write-string arg))
       ((osequence) (corba-write-osequence arg))
       ((tk_objref object) (corba-write-ior arg))
@@ -451,6 +451,7 @@ or the IOR.")
       ((anon-struct)
        (mapcar #'corba-unmarshal params))
       ((tk_TypeCode) (corba-read-typecode))
+      ((tk_null) nil)
       (t
        (corba-unmarshal (or (get kind 'corba-typecode)
                           (error "Can't handle TypeCode of kind %s" kind)))))))
