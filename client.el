@@ -4,6 +4,16 @@
 
 ;;;; Basic CORBA defs
 
+;;; Exceptions
+
+(put 'corba-system-exception 'error-conditions
+     '(corba-system-exception corba-exception error))
+(put 'corba-system-exception 'error-message "CORBA System Exception")
+
+(put 'corba-user-exception 'error-conditions
+     '(corba-user-exception corba-exception error))
+(put 'corba-user-exception 'error-message "CORBA User Exception")
+
 (defstruct corba-object
   (id nil)
   (host nil)
@@ -80,12 +90,16 @@
   (cdr-align 2)
   (insert (% n 256) (/ n 256)))
 
+(defun cdr-short (n)
+  (cdr-align 2)
+  (insert n (ash n -8)))
+
 (defun cdr-ulong (n)
   (cdr-align 4)
-  (insert (% n 256)
-	  (% (/ n 256) 256)
-	  (% (/ n 65536) 256)
-	  (% (/ n 16777216) 256)))
+  (insert n 
+	  (/ n 256)	
+	  (/ n 65536)	
+	  (/ n 16777216)))
 
 (defun cdr-string (s)
   (cdr-ulong (1+ (length s)))
@@ -188,6 +202,12 @@
   (cdr-read-number
    (if *byte-order* '(1 256)
      '(256 1))))
+
+(defun cdr-read-short ()
+  (let ((n (cdr-read-ushort)))
+    (if (> n (eval-when-compile (expt 2 15)))
+	(- n (eval-when-compile (expt 2 16)))
+      n)))
 
 (defun cdr-read-ulong ()
   (cdr-read-number
@@ -510,14 +530,15 @@
   (corba-request-get-response req)
   (corba-request-result req))
 
-
 
-;;;; Other CORBA module stuff
+;;;; The ORB Interface
 
 (defun corba-file-to-object (file)
   (corba-string-to-object
    (save-excursion
-     (set-buffer (find-file-noselect file))
+     (set-buffer (get-buffer-create "*REQ*"))
+     (erase-buffer)
+     (insert-file-contents file)
      (goto-char (point-min))
      (end-of-line 1)
      (buffer-substring (point-min) (point)))))
@@ -528,17 +549,6 @@
     (corba-file-to-object "/tmp/NameService"))
    ((string-equal name "InterfaceRepository")
     (corba-file-to-object "/tmp/ir"))))
-
-(defun object.is-a (obj id)
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation '("_is_a"
-		       (("id" tk_string))
-		       (("" tk_boolean)))
-	  :arguments (list id))))
-    (car (corba-request-invoke req))))
-
 
 (defsubst corba-hex-to-int (ch)
   (cdr (assq ch '((?0 . 0)
@@ -567,3 +577,15 @@
 			(corba-hex-to-int (aref str (1+ i))))))
        (cdr-read-ior))
     (error "Illegal string object")))
+
+;;; The Object Interface
+
+(defun object.is-a (obj id)
+  (let ((req
+	 (make-corba-request
+	  :object obj
+	  :operation '("_is_a"
+		       (("id" tk_string))
+		       (("" tk_boolean)))
+	  :arguments (list id))))
+    (car (corba-request-invoke req))))
