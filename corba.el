@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.5 1998/01/28 22:25:40 lenst Exp $
+;; Version: $Id: corba.el,v 1.6 1998/01/28 22:54:11 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1998/01/28 22:25:40 $|$Revision: 1.5 $||
+;; $Date: 1998/01/28 22:54:11 $|$Revision: 1.6 $||
 
 ;;; Commentary:
 
@@ -53,6 +53,9 @@
 ;;; Code:
 
 (require 'cl)
+
+(eval-when-compile (load "cl-extra"))   ; This seems to fix some strange autoloading
+                                        ; problem.
 
 (defvar corba-name-service "/tmp/NameService"
   "*Reference to the CORBA NameService.
@@ -310,27 +313,6 @@ or the IOR.")
   (while (/= 1 (% (point) n))
     (forward-char 1)))
 
-(defmacro cdr-with-encapsulation (obj &rest body)
-  (let ((envar (gensym))
-	(byte-order (gensym)))
-    `(let ((,envar ,obj))
-       (save-excursion
-	 (set-buffer (get-buffer-create "*CDR*"))
-	 (setq buffer-undo-list t)
-	 (goto-char (point-min))
-	 (let ((,byte-order *byte-order*))
-	   (save-restriction
-	     (unwind-protect
-		 (progn (insert ,envar)
-			(narrow-to-region (point-min) (point))
-			(goto-char (point-min))
-			(setq *byte-order* (cdr-read-octet))
-			,@body)
-	       (delete-region (point-min) (point-max))
-	       (setq *byte-order* ,byte-order))))))))
-
-(def-edebug-spec cdr-with-encapsulation
-  (form body))
 
 (defun cdr-in-encapsulation (obj closure &rest args)
   (save-excursion
@@ -731,12 +713,12 @@ or the IOR.")
 ;; Interface:
 (defun corba-orb-string-to-object (orb str)
   (if (string-match "IOR:" str)
-      (cdr-with-encapsulation
+      (cdr-in-encapsulation
        (loop for i from 4 below (length str) by 2
 	     concat (char-to-string
 		     (+ (* 16 (corba-hex-to-int (aref str i)))
 			(corba-hex-to-int (aref str (1+ i))))))
-       (cdr-read-ior))
+       #'cdr-read-ior)
     (error "Illegal string object")))
 
 ;; Interface:
