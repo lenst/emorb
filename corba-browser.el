@@ -1,78 +1,89 @@
 (require 'cl)
 (require 'corba)
-(require 'tree)
+;;(require 'tree)
 
-(defun corba-browser-expand-ir (orb path)
-  (let ((container
-         (if path
-             (let ((name (mapconcat 'identity path "::")))
-               (car (corba-invoke (corba-get-ir) "lookup" name) ))
-           (corba-get-ir))))
-    (if container 
-        (map 'list
-             (lambda (contained)
-               (car (corba-invoke contained "_get_name")))
-             (car (corba-invoke container "contents" 1 nil))))))
+(defun corba-browser-expand-ir (widget)
+  (let* ((orb (widget-get widget :orb) )
+         (parent (widget-get widget :parent))
+         (object (widget-get widget :ir-object)))
+    (unless object
+      (setq object (corba-get-ir))
+      (widget-put widget :ir-object object))
+    (mapcar
+       (lambda (contained)
+         (let ((name (car (corba-funcall "_get_name" contained))))
+           `(tree-widget :tag ,name
+                         :dynargs corba-browser-expand-ir
+                         :orb ,orb
+                         :ir-object ,contained )))
+       (condition-case err
+           (car (corba-funcall "contents" object 1 t))
+         (error 
+          (unless (string-match "Undefined operation" (cadr err))
+            (signal (car err) (cdr err))))))))
 
-(defun corba-browser-expand-ns (orb path)
-  (let ((context
-         (corba-object-narrow
-          (corba-orb-resolve-initial-references orb "NameService")
-          "IDL:omg.org/CosNaming/NamingContext:1.0")))
-    (when path
-      (let ((name
-             (mapcar
-              (lambda (n)
-                (destructuring-bind (id &optional kind)
-                    (split-string n "\t")
-                  (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
-                                'id id 'kind (or kind ""))))
-              path)))
-        (setq context (car (corba-invoke context "resolve" name)))))
+
+
+
+(defun corba-browser-expand-ns (widget)
+  (let* ((orb (widget-get widget :orb))
+         (name (widget-get widget :ns-name))
+         (context (widget-get widget :ns-context)))
+    (cond (name
+           (let ((p-context (widget-get (widget-get widget :parent)
+                                        :ns-context)))
+             (setq context (car (corba-funcall "resolve" p-context name)))))
+          (t
+           (setq context
+                 (corba-object-narrow
+                  (corba-orb-resolve-initial-references orb "NameService")
+                  "IDL:omg.org/CosNaming/NamingContext:1.0"))))
+    (widget-put widget :ns-context context)
     (if (and context
              (corba-object-is-a context
                                 "IDL:omg.org/CosNaming/NamingContext:1.0"))
-        (let  ((result (corba-invoke context "list" 100)))
+        (let  ((result (corba-funcall "list" context 100)))
           (when (second result)
-            (corba-invoke (second result) "destroy"))
-          (map 'list
-               (lambda (binding)
-                 (let ((name (corba-struct-get binding 'binding-name)))
-                   (format "%s\t%s"
-                           (corba-struct-get (first name) 'id)
-                           (corba-struct-get (first name) 'kind))))
-               (first result))))))
+            (corba-funcall "destroy" (second result)))
+          (mapcar
+           (lambda (binding)
+             (let* ((name (corba-struct-get binding 'binding-name))
+                    (type (corba-struct-get binding 'binding-type))
+                    (id (corba-struct-get (first name) 'id))
+                    (kind (corba-struct-get (first name) 'kind)))
+               (if (= type 0)
+                   `(item ,(format "%s.%s" id kind))
+                 `(tree-widget
+                   :tag ,(format "%s.%s" id kind)
+                   :ns-name ,name :orb ,orb
+                   :dynargs corba-browser-expand-ns
+                   :has-children t ))))
+           (first result))))))
 
 
-(defun corba-browser-expand (node)
-  (let* ((names (split-string (car node) "::"))
-         (name (car names))
-         (orb (corba-orb-init)))
-    (cond
-     ((equal name "InterfaceRepository")
-      (corba-browser-expand-ir orb (cdr names)))
-     ((equal name "NameService")
-      (corba-browser-expand-ns orb (cdr names))))))
-
-
-(defvar corba-browser-mode-map
-  (make-sparse-keymap))
-
-(defun corba-browser-mode ()
-  (use-local-map corba-browser-mode-map)
-  (suppress-keymap corba-browser-mode-map)
-  (local-set-key " " 'tree-toggle-branch)
-  (setq major-mode 'corba-browser
-        mode-name "CORBA Browser"))
 
 (defun corba-browser ()
   (interactive)
   (pop-to-buffer (get-buffer-create "*Browser*"))
-  (erase-buffer)
-  (corba-browser-mode)
-  (make-local-variable 'tree-root-nodes)
-  (make-local-variable 'tree-seperator)
-  (setq tree-seperator "::")
-  (setq tree-root-nodes (list "InterfaceRepository" "NameService"))
-  (tree-create tree-root-nodes 'corba-browser-expand t)
-  (goto-char (point-min)))
+  (kill-all-local-variables)
+  (make-local-variable 'widget-example-repeat)
+  (let ((inhibit-read-only t))
+    (erase-buffer))
+  (remove-overlays)
+  (widget-insert "CORBA Browser\n\n")
+  (widget-create 'tree-widget
+                 :tag "CORBA"
+                 :open t
+                 `(tree-widget
+                   :tag "NameService"
+                   :dynargs corba-browser-expand-ns
+                   :has-children t
+                   :orb nil )
+                 '(tree-widget
+                   :tag "InterfaceRepository"
+                   :dynargs corba-browser-expand-ir
+                   :has-children t
+                   :orb nil ))
+  (use-local-map widget-keymap)
+  (widget-setup))
+
