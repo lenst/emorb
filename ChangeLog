@@ -1,3 +1,10 @@
+2002-01-31  Lennart Staflin  <lenst@lysator.liu.se>
+
+	* corba.el (corba-get-work-buffer): set buffer unibyte
+	(corba-get-connection): set buffer unibyte, and process coding to
+	binary.
+	(corba-file-to-object): set buffer unibyte
+
 Fri Mar 17 20:10:24 2000  Lennart Staflin  <lenst@lysator.liu.se>
 
 	* corba.el (corba-request-get-response): get the current client in

@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.25 2002/01/21 23:00:31 lenst Exp $
+;; Version: $Id: corba.el,v 1.26 2002/05/16 20:48:35 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2002/01/21 23:00:31 $|$Revision: 1.25 $||
+;; $Date: 2002/05/16 20:48:35 $|$Revision: 1.26 $||
 
 ;;; Commentary:
 
@@ -205,6 +205,7 @@ If nil, the actual value will be returned.")
           (generate-new-buffer " *CDR*"))
     (let ((ob (current-buffer)))
       (set-buffer corba-work-buffer)
+      (set-buffer-multibyte nil)
       (make-local-variable 'corba-work-buffer)
       (setq corba-work-buffer nil)
       (setq buffer-undo-list t)
@@ -577,6 +578,7 @@ If nil, the actual value will be returned.")
       (let ((buffer (generate-new-buffer " *IIOP*")))
         (save-excursion
           (set-buffer buffer)
+          (set-buffer-multibyte nil)
           (setq buffer-undo-list nil)
           (setq corba-message-size nil)
           (erase-buffer))
@@ -585,6 +587,7 @@ If nil, the actual value will be returned.")
                    (open-network-stream "iiop" buffer host port)
                  (error (kill-buffer buffer)
                         (signal (car errinfo) (cdr errinfo))))))
+          (set-process-coding-system proc 'binary 'binary)
           ;; FIXME: should I check if open
           (if pp
               (setcdr pp proc)
@@ -814,6 +817,7 @@ Result is the list of the values of the out parameters."
        file				; Looks like the IOR itself
      (save-excursion
        (set-buffer (get-buffer-create "*REQ*"))
+       (set-buffer-multibyte nil)
        (erase-buffer)
        (insert-file-contents file)
        (goto-char (point-min))
