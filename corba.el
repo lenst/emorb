@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.6 1998/01/28 22:54:11 lenst Exp $
+;; Version: $Id: corba.el,v 1.7 1998/01/29 21:20:31 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1998/01/28 22:54:11 $|$Revision: 1.6 $||
+;; $Date: 1998/01/29 21:20:31 $|$Revision: 1.7 $||
 
 ;;; Commentary:
 
@@ -245,10 +245,10 @@ or the IOR.")
              (cdr-osequence
               (cdr-make-encapsulation
                (lambda (params spec)
-                 (map nil 'cdr-marshal params spec))
+                 (mapcar 'cdr-marshal params spec))
                params (cdr pspec))))
 	    (t
-             (map nil 'cdr-marshal params pspec))))))
+             (mapcar 'cdr-marshal params pspec))))))
 
 
 (defun cdr-ior (objref)
@@ -282,7 +282,7 @@ or the IOR.")
 	     (cdr-osequence arg)
 	   (cdr-sequence arg (lambda (arg) (cdr-marshal arg _el_type_))))))
       ((tk_struct)
-       (map nil (lambda (el)
+       (mapcar (lambda (el)
                   (cdr-marshal (cdr (assq (lispy-name (first el)) arg))
                                (second el)))
             (third params)))
