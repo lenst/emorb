@@ -248,3 +248,13 @@
                             (corba-object-id object))))))))
          binding-list)))))
 
+
+(defun corba-resolve (&rest names)
+  (let ((n (mapcar (lambda (id)
+                     (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
+                                   'id id 'kind ""))
+                   names)))
+    (car (corba-invoke (corba-orb-resolve-initial-references
+                        (corba-orb-init)
+                        "NameService")
+                       "resolve" n))))

@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.3 1998/01/26 19:44:20 lenst Exp $
+;; Version: $Id: corba.el,v 1.4 1998/01/28 20:27:35 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; 21-May-95|$Revision: 1.3 $||
+;; 21-May-95|$Revision: 1.4 $||
 
 ;;; Commentary:
 
@@ -174,7 +174,7 @@ or the IOR.")
 		  (?e . 14) (?E . 14)
 		  (?f . 15) (?F . 15)))))
 
-;;;; Marshaling
+;;;; Marshal
 
 (defun cdr-octet (n)
   (insert n))
@@ -219,6 +219,7 @@ or the IOR.")
     (goto-char (point-min))
     (save-restriction
       (narrow-to-region (point-min) (point-min))
+      (insert 1)                        ; Byte order
       (apply closure args)
       (prog1 (buffer-substring (point-min) (point-max))
         (delete-region (point-min) (point-max))))))
@@ -226,16 +227,25 @@ or the IOR.")
 (defun cdr-typecode (tc)
   (let ((kind (typecode-kind tc))
 	(params (typecode-params tc)))
+    (case kind                          ; We somtimes munge typcodes, try
+                                        ; to supply reasonable defaults for
+                                        ; lost info
+      ((tk_string) (setq params (append params (list 0))))
+      ((tk_sequence) (setq params (append params (list 0))))
+      ((tk_objref) (setq params (append params
+                                        (list "IDL:omg.org/CORBA/Object:1.0"))))
+      ((tk_enum) (error "Can't marshal ENUM TypeCode")))
     (cdr-ulong (symbol-value kind))
     (let ((pspec (get kind 'tk-params)))
       (cond ((null pspec))
 	    ((eq 'complex (car pspec))
-             (cdr-make-encapsulation
-              (lambda (params spec)
-		(map nil #'cdr-marshal params spec))
-	      params (cdr pspec)))
+             (cdr-osequence
+              (cdr-make-encapsulation
+               (lambda (params spec)
+                 (map nil 'cdr-marshal params spec))
+               params (cdr pspec))))
 	    (t
-             (map nil #'cdr-marshal params (cdr pspec)))))))
+             (map nil 'cdr-marshal params pspec))))))
 
 
 (defun cdr-ior (objref)
@@ -252,7 +262,7 @@ or the IOR.")
 		 params (cdr type)))
 	  (t (setq kind type)))
     (case kind
-      ((tk_any) (cdr-marshal (corba-any-typecode arg) 'tk_typecode)
+      ((tk_any) (cdr-marshal (corba-any-typecode arg) 'tk_TypeCode)
        (cdr-marshal (corba-any-value arg) (corba-any-typecode arg)))
       ((tk_octet tk_char) (cdr-octet arg))
       ((tk_boolean bool) (cdr-bool arg))
@@ -262,6 +272,7 @@ or the IOR.")
       ((osequence) (cdr-osequence arg))
       ((tk_objref object) (cdr-ior arg))
       ((tk_alias) (cdr-marshal arg (third params)))
+      ((tk_TypeCode) (cdr-typecode arg))
       ((sequence tk_sequence)
        (let ((_el_type_ (first params)))
 	 (if (eq _el_type_ 'tk_octet)
@@ -281,10 +292,13 @@ or the IOR.")
                             (error "MARSHAL: %s" type)))))))
 
 
-;;; UnMarshal
+
+;;;; UnMarshal
 
 (defvar *byte-order* 1)
 (make-variable-buffer-local '*byte-order*)
+
+(declaim (inline cdr-read-octet cdr-read-char cdr-read-bool cdr-read-align))
 
 (defun cdr-read-octet ()
   (prog1 (following-char) (forward-char 1)))
@@ -422,18 +436,16 @@ or the IOR.")
        (cdr-unmarshal (third params)))
       ((tk_struct)
        (cons (first params)
-	     (map 'list (lambda (nt-pair)
-                          (cons (lispy-name (first nt-pair))
-                                (cdr-unmarshal (second nt-pair))))
-                  (third params))))
+	     (mapcar (lambda (nt-pair)
+                       (cons (lispy-name (first nt-pair))
+                             (cdr-unmarshal (second nt-pair))))
+                     (third params))))
       ((tk_except)
-       (map 'list
-            (lambda (nt-pair) (cdr-unmarshal (second nt-pair)))
-            (third params)))
+       (mapcar (lambda (nt-pair) (cdr-unmarshal (second nt-pair)))
+               (third params)))
       ((object tk_objref) (cdr-read-ior))
       ((anon-struct)
-       (loop for type in params
-	     collect (cdr-unmarshal type)))
+       (mapcar #'cdr-unmarshal params))
       ((tk_TypeCode) (cdr-read-typecode))
       (t
        (cdr-unmarshal (or (get kind 'corba-typecode)
@@ -499,9 +511,8 @@ or the IOR.")
 		     :profiles profiles)))
     (loop for (tag . encaps) in profiles
 	  if (= tag 0)
-	  do (cdr-with-encapsulation
-	      encaps
-	      (cdr-read-iiop-profile-body reference))
+	  do (cdr-in-encapsulation encaps
+                                   #'cdr-read-iiop-profile-body reference)
 	  (return))
     reference))
 
@@ -580,20 +591,26 @@ or the IOR.")
       (set-buffer (get-buffer-create "*REQ*"))
       (setq buffer-undo-list t)
       (erase-buffer)
-      (cdr-giop-header 'request)
-      (cdr-ulong 0)			;context
-      (cdr-ulong (corba-request-req-id req))
-      (cdr-octet (if (memq 'no-response flags) 0 1)) ;respons expected
-      (cdr-osequence (corba-object-key object))
-      (cdr-string (corba-opdef-name operation))
-      (cdr-osequence "")		;principal
-      (loop for arg in (corba-request-arguments req)
-	    for desc in (corba-opdef-inparams operation)
-	    do (cdr-marshal arg (cdr desc)))
+      (cond
+       ((eq operation 'locate)
+        (cdr-giop-header 3)		;LocateRequest
+        (cdr-ulong (corba-request-req-id req))
+        (cdr-osequence (corba-object-key object)))
+       (t
+        (cdr-giop-header 'request)
+        (cdr-ulong 0)			;context
+        (cdr-ulong (corba-request-req-id req))
+        (cdr-octet (if (memq 'no-response flags) 0 1)) ;respons expected
+        (cdr-osequence (corba-object-key object))
+        (cdr-string (corba-opdef-name operation))
+        (cdr-osequence "")		;principal
+        (loop for arg in (corba-request-arguments req)
+              for desc in (corba-opdef-inparams operation)
+              do (cdr-marshal arg (cdr desc)))))
       (cdr-giop-set-message-length)
       (process-send-region client (point-min) (point-max))
       ;;(message "Request %d sent" (corba-request-req-id req))
-      (accept-process-output)
+      ;;(accept-process-output)
       (push req *corba-waiting-requests*))))
 
 
@@ -638,20 +655,32 @@ or the IOR.")
         (cond
          ((<= (point-max) *message-size*)
           (setq *message-size* nil))
-         ((= msgtype 1)                 ;Reply
-          (let* ((service-context (cdr-read-service-context))
-                 (request-id (cdr-read-ulong))
+         ((memq msgtype '(1 4))         ;Reply
+          (when (= msgtype 1)
+            ;; Ignore service context
+            (cdr-read-service-context))
+          (let* ((request-id (cdr-read-ulong))
                  (req
                   (loop for req in *corba-waiting-requests*
                         if (= request-id (corba-request-req-id req))
                         return req)))
-            (cond (req
-                   (setq *corba-waiting-requests*
-                         (delq req *corba-waiting-requests*))
-                   (and (corba-read-reply req)
-                        req))
-                  (t
-                   (message "Unexpected respons for id %s" request-id)))))
+            (cond
+             (req
+              (setq *corba-waiting-requests* (delq req *corba-waiting-requests*))
+              (if (= msgtype 1)
+                  (and (corba-read-reply req)
+                       req)
+                (let ((status (cdr-read-ulong)))
+                  (cond ((= status 2)
+                         (setf (corba-object-forward (corba-request-object req))
+                               (cdr-read-ior))
+                         (corba-request-send req)
+                         nil)
+                        (t
+                         (setf (corba-request-result req) status)
+                         req)))))
+             (t
+              (message "Unexpected respons for id %s" request-id)))))
          ((= msgtype 5)                 ;Close Connection
           (delete-process client)
           (error "Connection closed"))))))))
