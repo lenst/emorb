@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.30 2005/02/23 18:41:57 lenst Exp $
+;; Version: $Id: corba.el,v 1.31 2005/02/26 21:21:44 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2005/02/23 18:41:57 $|$Revision: 1.30 $||
+;; $Date: 2005/02/26 21:21:44 $|$Revision: 1.31 $||
 
 ;;; Commentary:
 
@@ -36,7 +36,7 @@
 ;;; TODO:
 
 ;; Marshaling code for: longlong, ulonglong, floats, fixed,
-;; union, array, wchar, wstring, better handling of enum
+;; union, array, wchar, wstring
 
 ;; How should overflow in long/ulong be handled?
 ;; -> going to float maybe
@@ -149,7 +149,7 @@ If nil, the actual value will be returned.")
 (put 'tk_struct 'tk-params '(complex string string
 				     (sequence (anon-struct string tk_TypeCode))))
 (put 'tk_union 'tk-params t)
-(put 'tk_enum 'tk-params t)
+(put 'tk_enum 'tk-params '(complex string string (sequence string)))
 (put 'tk_sequence 'tk-params '(complex tk_TypeCode tk_ulong))
 (put 'tk_string 'tk-params '(tk_ulong))
 (put 'tk_wstring 'tk-params '(tk_ulong))
@@ -176,6 +176,27 @@ If nil, the actual value will be returned.")
          (loop for c across-ref string
                if (eq c ?_) do (setf c ?-))
 	 (intern string))))
+
+(defun corba-make-keyword (string)
+  (intern (concat ":" string)))
+
+(defun corba-enum-symbols (tc)
+  (assert (eql (corba-typecode-kind tc) 'tk_enum))
+  (let* ((params (corba-typecode-params tc))
+         (member-slot (cddr params))
+         (symbols (cdr member-slot)))
+    (unless symbols
+      (setq symbols (mapcar 'corba-make-keyword (car member-slot)))
+      (setcdr member-slot symbols))
+    symbols))
+  
+
+(defconst corba-tc-string
+  (make-corba-typecode 'tk_string '(0)))
+
+(defconst corba-tc-object
+  (make-corba-typecode 'tk_objref '("IDL:omg.org/CORBA/Object:1.0" "Object")))
+
 
 ;;;; Misc utilities
 
@@ -272,15 +293,6 @@ If nil, the actual value will be returned.")
 (defun corba-write-typecode (tc)
   (let ((kind (corba-typecode-kind tc))
 	(params (corba-typecode-params tc)))
-    (case kind                          ; We somtimes munge typcodes, try
-                                        ; to supply reasonable defaults for
-                                        ; lost info
-      ((tk_string) (setq params (append params (list 0))))
-      ((tk_sequence) (setq params (append params (list 0))))
-      ((tk_objref)
-       (setq params (append params
-                            (list "IDL:omg.org/CORBA/Object:1.0"))))
-      ((tk_enum) (error "Can't marshal ENUM TypeCode")))
     (corba-write-ulong (symbol-value kind))
     (let ((pspec (get kind 'tk-params)))
       (cond ((null pspec))
@@ -324,7 +336,15 @@ If nil, the actual value will be returned.")
       (corba-marshal type-code 'tk_TypeCode)
       (corba-marshal arg type-code))))
 
-
+(defun corba-write-enum (arg symbols)
+  (if (numberp arg)
+      (corba-write-ulong arg)
+      (let ((pos (and (symbolp arg)
+                      (position arg symbols))))
+        (if pos
+            (corba-write-ulong pos)
+            (error "CORBA MARSHAL: %S is not correct enum constant"
+                   arg)))))
 
 (defun corba-marshal (arg type)
   (let (kind params)
@@ -337,11 +357,12 @@ If nil, the actual value will be returned.")
       ((tk_octet tk_char) (corba-write-octet arg))
       ((tk_boolean bool) (corba-write-bool arg))
       ((tk_ushort tk_short) (corba-write-short arg))
-      ((tk_ulong tk_long tk_enum) (corba-write-ulong arg))
+      ((tk_ulong tk_long) (corba-write-ulong arg))
       ((tk_string string) (corba-write-string arg))
       ((osequence) (corba-write-osequence arg))
       ((tk_objref object) (corba-write-ior arg))
       ((tk_alias) (corba-marshal arg (third params)))
+      ((tk_enum) (corba-write-enum arg (corba-enum-symbols type)))
       ((tk_TypeCode) (corba-write-typecode arg))
       ((sequence tk_sequence)
        (let ((eltype (first params)))
@@ -468,7 +489,8 @@ If nil, the actual value will be returned.")
       ((bool tk_boolean) (corba-read-bool))
       ((ushort tk_ushort) (corba-read-ushort))
       ((tk_short) (corba-read-short))
-      ((ulong tk_ulong tk_enum) (corba-read-ulong))
+      ((ulong tk_ulong) (corba-read-ulong))
+      ((tk_enum) (elt (corba-enum-symbols type) (corba-read-ulong)))
       ((tk_long) (corba-read-number 4 t))
       ((string tk_string) (corba-read-string))
       ((tk_any) (corba-read-any))
@@ -968,13 +990,7 @@ Result is the list of the values of the out parameters."
 (defun corba-object-is-a (obj id)
   (or (if corba-trust-object-irid
           (equal id (corba-object-id obj)))
-      (car (corba-request-invoke
-            (make-corba-request
-             :object obj
-             :operation (make-corba-opdef :name "_is_a"
-                                          :inparams '(("id" . tk_string))
-                                          :outparams '(("" . tk_boolean)))
-             :arguments (list id))))))
+      (car (corba-funcall "_is_a" obj id))))
 
 ;; Interface:
 (defun corba-object-is-nil (obj)
@@ -1078,33 +1094,28 @@ Result is the list of the values of the out parameters."
      nil)))
 
 
-
-
-
-(defun corba-simplify-type (typecode)
-  ;; Simplify a TYPECODE returning a simplified version. Usually used
-  ;; for typecodes gotten from the Interface Repository. Some kinds of
-  ;; typecodes are stored in the internal repository. These always
-  ;; have a repository id as key. The simplified typecode will be the
-  ;; version stored in the internal repository.
-  (macrolet ((mush (id def)
-               `(or (corba-has-typecode-p ,id)
-                    (progn (corba-add-typecode-with-id ,id typecode)
-                           ,def)))
-             (simplifyf (var)
-               `(progn (setf ,var (corba-simplify-type ,var))
-                 typecode))
-             (simplifyv (vec fun)
-               `(progn (loop for el in ,vec do (simplifyf (,fun el)))
-                 typecode)))
-    (let ((params (corba-typecode-params typecode)))
+(defun corba-intern-type (typecode)
+  ;; Make typecodes with repository ID be stored in the internal
+  ;; typecode repository in a single instance. Usually used for
+  ;; typecodes gotten from the Interface Repository.
+  (let ((params (corba-typecode-params typecode)))
+    (macrolet ((mush (&optional def)
+                 `(or (corba-has-typecode-p (first params))
+                      (progn (corba-add-typecode-with-id (first params)
+                                                         typecode)
+                             ,(or def 'typecode))))
+               (simplifyf (var)
+                 `(progn (setf ,var (corba-intern-type ,var))
+                         typecode))
+               (simplifyv (vec fun)
+                 `(progn (loop for el in ,vec do (simplifyf (,fun el)))
+                         typecode)))
       (case (corba-typecode-kind typecode)
-        ((tk_objref tk_string tk_enum) (corba-typecode-kind typecode))
-        ((tk_alias) (mush (first params) (corba-simplify-type (third params))))
+        ((tk_objref tk_enum) (mush))
+        ((tk_alias) (mush (simplifyf (third params))))
         ((tk_sequence) (simplifyf (first params)))
-        ((tk_struct) (mush (first params) (simplifyv (third params) second)))
-        ((tk_except) (mush (first params) (simplifyv (third params) second)))
-        (t  typecode)))))
+        ((tk_struct tk_except) (mush (simplifyv (third params) second)))
+        (t typecode)))))
 
 
 
@@ -1119,7 +1130,7 @@ not FILEDS is given the Interface Repository will be used to get the
 typecode."
   (if (null fields)
       (corba-get-typecode id)
-    (corba-simplify-type
+    (corba-intern-type
      (make-corba-typecode 'tk_struct
                     (list id (format "%s" (or name ""))
                           (if (consp fields)
@@ -1184,6 +1195,7 @@ of fields can be defaulted (numbers and strings)."
 
 (defun corba-get-ir ()
   "Get an object reference to the Interface Repository"
+  (assert corba-orb nil "ORB initialized")
   (corba-resolve-initial-references corba-orb "InterfaceRepository"))
 
 
@@ -1205,7 +1217,7 @@ of fields can be defaulted (numbers and strings)."
   (let* ((name (corba-get-attribute irdef "_get_name" 'tk_string))
          (attr-mode-tc (corba-get-typecode "IDL:omg.org/CORBA/AttributeMode:1.0"))
          (mode (corba-get-attribute irdef "_get_mode" attr-mode-tc))
-         (type (corba-simplify-type
+         (type (corba-intern-type
                 (corba-get-attribute irdef "_get_type" 'tk_TypeCode))))
     (cons (make-corba-opdef
            :name (format "_get_%s" name)
@@ -1228,9 +1240,9 @@ id for the operation."
 	(inpars nil)
 	(outpars nil))
     (unless (eq 'tk_void (corba-typecode-kind result))
-      (push  (corba-simplify-type result) outpars))
+      (push  (corba-intern-type result) outpars))
     (loop for pardesc in (corba-get-attribute irdef "_get_params" parseq)
-	  for tc   = (corba-simplify-type (corba-struct-get pardesc 'type))
+	  for tc   = (corba-intern-type (corba-struct-get pardesc 'type))
 	  for mode = (corba-struct-get pardesc 'mode)
 	  do (when (memq mode '(0 2))
                (push tc inpars))
@@ -1291,7 +1303,7 @@ id for the operation."
       (setq def (corba-ir-lookup-id id))
       (when (corba-object-is-nil def)
 	(error "InterfaceRepository do not know about %s" id))))
-  (corba-simplify-type 
+  (corba-intern-type
    (corba-get-attribute def "_get_type" 'tk_TypeCode) ))
 
 ;;;; Easy DII - corba-funcall
