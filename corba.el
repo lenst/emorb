@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.2 1998/01/25 20:42:41 lenst Exp $
+;; Version: $Id: corba.el,v 1.3 1998/01/26 19:44:20 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; 21-May-95|$Revision: 1.2 $||
+;; 21-May-95|$Revision: 1.3 $||
 
 ;;; Commentary:
 
@@ -87,6 +87,7 @@ or the IOR.")
   (profiles nil)
   (forward nil))
 
+;; Interface:
 (defstruct corba-any
   (typecode nil)
   (value nil))
