@@ -206,3 +206,14 @@
         (ns (corba-orb-resolve-initial-references (corba-orb-init)
                                                   "NameService")))
     (first (corba-invoke ns "resolve" n))))
+
+
+(defun corba-register (obj &rest names)
+  (corba-invoke
+   (corba-orb-resolve-initial-references (corba-orb-init) "NameService")
+   "rebind"
+   (mapcar (lambda (id)
+	     (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
+			   'id id 'kind ""))
+	   names)
+   obj))
