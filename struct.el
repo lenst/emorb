@@ -26,7 +26,7 @@
 ;;;; IR-test
 
 (defun corba-check-type (obj id)
-  (unless (object.is-a obj id)
+  (unless (corba-object-is-a obj id)
     (error "Not a %s" id)))
 
 (defun repository.lookup-id (obj search-id)
@@ -64,19 +64,16 @@
 	  :arguments (list limit-type exclude-inherited))))
     (car (corba-request-invoke req)) ))
 
-(corba-def-struct contained.description
-		  "IDL:omg.org/CORBA/Contained/Description:1.0"
-		  ((kind tk_ulong)
-		   (value tk_any)))
 
 (defun contained.describe (obj)
   (corba-check-type obj "IDL:omg.org/CORBA/Contained:1.0")
   (let ((req
 	 (make-corba-request
 	  :object obj
-	  :operation '("describe"
+	  :operation `("describe"
 		       ()
-		       (("" contained.description)))
+		       (("" ,(corba-struct-typecode
+                              "IDL:omg.org/CORBA/Contained/Description:1.0"))))
 	  :arguments nil)))
     (car (corba-request-invoke req)) ))
 
