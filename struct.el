@@ -54,7 +54,9 @@
 
 (defun* ls (&key start avoid (recursive t))
   (unless start
-    (setq start (corba-orb-resolve-initial-references "NameService")))
+    (setq start (corba-orb-resolve-initial-references
+                 (corba-orb-init)
+                 "NameService")))
   (unless (member (corba-object-key start) avoid)
     (push (corba-object-key start) avoid)
     (let ((result (corba-invoke start "list" 1000)))
@@ -199,7 +201,7 @@
           strseq))
 
 (defun example2 ()
-  (let ((ns (corba-orb-resolve-initial-references "NameService")))
+  (let ((ns (corba-orb-resolve-initial-references nil "NameService")))
     (corba-invoke ns "bind"
                   (name "dev" "ir")
                   (corba-get-ir))
@@ -208,7 +210,8 @@
 
 (defun ils (&optional start)
   (unless start
-    (setq start (corba-orb-resolve-initial-references "NameService")))
+    (setq start (corba-orb-resolve-initial-references
+                 (corba-orb-init) "NameService")))
   (destructuring-bind (l i)
       (corba-invoke start "list" 0)
     (unless (corba-object-is-nil i)
@@ -218,3 +221,30 @@
                             (elt (corba-struct-get b 'binding-name) 0)
                             'id))
         (corba-invoke i "destroy")))))
+
+(defun show-name-service ()
+  (interactive)
+  (let* ((orb (corba-orb-init))
+         (ns  (corba-orb-resolve-initial-references orb "NameService")))
+    (destructuring-bind (binding-list binding-iter)
+        (corba-invoke ns "list" 1000)
+      (unless (corba-object-is-nil binding-iter)
+        (corba-invoke binding-iter "destroy"))
+      (with-output-to-temp-buffer "*NameService*"
+        (mapcar
+         (lambda (binding)
+           (let ((name (corba-struct-get binding 'binding-name)))
+             (princ
+              (format "%-25s %-13s %s\n"
+                      (mapconcat (lambda (nc) (corba-struct-get nc 'id))
+                                 name "/")
+                      (mapconcat (lambda (nc) (corba-struct-get nc 'kind))
+                                 name "/")
+                      (if (eq (corba-struct-get binding 'binding-type) 1)
+                          "CONTEXT"
+                        (let ((object (car (corba-invoke ns "resolve" name))))
+                          (if (corba-object-is-nil object)
+                              "NIL"
+                            (corba-object-id object))))))))
+         binding-list)))))
+
