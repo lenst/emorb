@@ -251,7 +251,7 @@
                                                   "NameService"))
          (reqs (make-vector times nil))
          (args (list n)))
-    
+
     (assert (corba-object-is-a ns nsid))
 
     (dotimes (i times)
@@ -275,7 +275,7 @@
                                                    "NameService"))
          (reqs (make-vector times nil))
          (args (list n)))
-    
+
     (assert (corba-object-is-a ns nsid))
 
     (loop for sendIndex from 0
@@ -288,5 +288,3 @@
           do (let ((req (aref reqs recvIndex)))
                (corba-request-get-response req)
                '(message "%d: %s" i (corba-request-result req))))))
-
-

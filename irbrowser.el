@@ -11,7 +11,7 @@
     (unless (equal name "")
       (setq container (car (corba-invoke ir "lookup" name) )))
     (setq names
-          (if container 
+          (if container
               (map 'list
                    (lambda (contained)
                      (car (corba-invoke contained "_get_name")))
@@ -30,7 +30,7 @@
 
 (defun ir-browser ()
   (interactive)
-  (pop-to-buffer (get-buffer-create "*Interface Repositiory*"))
+  (pop-to-buffer (get-buffer-create "*Interface Repository*"))
   (erase-buffer)
   (ir-browser-mode)
   (make-local-variable 'tree-root-nodes)
@@ -39,6 +39,3 @@
   (setq tree-root-nodes (list ""))
   (tree-create tree-root-nodes 'irb-root-expand t)
   (goto-char (point-min)))
-
-
-
