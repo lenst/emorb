@@ -4,7 +4,7 @@
 @settitle corba
 @c @setchapternewpage odd
 @c %**end of header
-@c $Id: corba.texi,v 1.2 1998/01/29 21:21:04 lenst Exp $
+@c $Id: corba.texi,v 1.3 2005/02/23 18:42:09 lenst Exp $
 
 @defun corba-object-create-request object op args
 Create a request object for the corba @var{object} and the operation
@@ -60,12 +60,11 @@ always be true for any CORBA object @code{obj}.
 
 The standard ORB interface.
 
-@defun corba-orb-init
-Initiates the ORB and returns the orb object.  This is currently a null
-operation.
+@defun corba-init
+Initiates the ORB and returns the orb object.  
 @end defun
 
-@defun corba-orb-resolve-initial-references orb name
+@defun corba-resolve-initial-references orb name
 Returns an object reference to the object named by @var{name}.  The
 @var{orb} parameter should be the value from @code{corba-orb-init}
 The names recognized are @code{NameService} and
@@ -75,11 +74,11 @@ theses by setting the @code{corba-name-service} and
 @end defun
 
 @defvar corba-name-service
-The IOR or the name of a file containing the IOR of the Name Service.
+The IOR of the Name Service.
 @end defvar
 
 @defvar corba-interface-repository
-The IOR or the name of a file containing the IOR of the Interface Repository.
+The IOR of the Interface Repository.
 @end defvar
 
 

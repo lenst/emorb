@@ -1,6 +1,6 @@
 (require 'cl)
 (require 'corba)
-;;(require 'tree)
+
 
 (defun corba-browser-expand-ir (widget)
   (let* ((orb (widget-get widget :orb) )
@@ -36,7 +36,7 @@
           (t
            (setq context
                  (corba-object-narrow
-                  (corba-orb-resolve-initial-references orb "NameService")
+                  (corba-resolve-initial-references orb "NameService")
                   "IDL:omg.org/CosNaming/NamingContext:1.0"))))
     (widget-put widget :ns-context context)
     (if (and context
@@ -66,24 +66,24 @@
   (interactive)
   (pop-to-buffer (get-buffer-create "*Browser*"))
   (kill-all-local-variables)
-  (make-local-variable 'widget-example-repeat)
   (let ((inhibit-read-only t))
     (erase-buffer))
   (remove-overlays)
   (widget-insert "CORBA Browser\n\n")
-  (widget-create 'tree-widget
-                 :tag "CORBA"
-                 :open t
-                 `(tree-widget
-                   :tag "NameService"
-                   :dynargs corba-browser-expand-ns
-                   :has-children t
-                   :orb nil )
-                 '(tree-widget
-                   :tag "InterfaceRepository"
-                   :dynargs corba-browser-expand-ir
-                   :has-children t
-                   :orb nil ))
+  (let ((orb (corba-init)))
+    (widget-create 'tree-widget
+                   :tag "CORBA"
+                   :open t
+                   `(tree-widget
+                     :tag "NameService"
+                     :dynargs corba-browser-expand-ns
+                     :has-children t
+                     :orb ,orb )
+                   `(tree-widget
+                     :tag "InterfaceRepository"
+                     :dynargs corba-browser-expand-ir
+                     :has-children t
+                     :orb ,orb )) )
   (use-local-map widget-keymap)
   (widget-setup))
 
