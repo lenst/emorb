@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.10 1998/03/01 17:26:00 lenst Exp $
+;; Version: $Id: corba.el,v 1.11 1998/03/01 18:10:58 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1998/03/01 17:26:00 $|$Revision: 1.10 $||
+;; $Date: 1998/03/01 18:10:58 $|$Revision: 1.11 $||
 
 ;;; Commentary:
 
@@ -185,6 +185,35 @@ or the IOR.")
 		  (?e . 14) (?E . 14)
 		  (?f . 15) (?F . 15)))))
 
+;;;; Work buffer managing
+
+(defvar corba-work-buffer nil)
+
+(defun corba-get-work-buffer ()
+  (unless corba-work-buffer
+    (setq corba-work-buffer
+          (generate-new-buffer " *CDR*"))
+    (let ((ob (current-buffer)))
+      (set-buffer corba-work-buffer)
+      (make-local-variable 'corba-work-buffer)
+      (setq corba-work-buffer nil)
+      (setq buffer-undo-list t)
+      (set-buffer ob)))
+  corba-work-buffer)
+
+(defun corba-set-work-buffer ()
+  (set-buffer (corba-get-work-buffer))
+  (erase-buffer))
+
+(defmacro corba-in-work-buffer (&rest body)
+  (let ((cb-var (gensym)))
+      `(let ((,cb-var (current-buffer)))
+         (unwind-protect
+             (progn (corba-set-work-buffer) ,@body)
+           (set-buffer ,cb-var)))))
+
+(put 'corba-in-work-buffer 'lisp-indent-function 0)
+
 ;;;; Marshal
 
 (defun corba-write-octet (n)
@@ -218,15 +247,10 @@ or the IOR.")
   (loop for e in s do (funcall el-cdr e)))
 
 (defun corba-make-encapsulation (closure &rest args)
-  (save-excursion
-    (set-buffer (get-buffer-create "*REQ*"))
-    (goto-char (point-min))
-    (save-restriction
-      (narrow-to-region (point-min) (point-min))
-      (insert 1)                        ; Byte order
-      (apply closure args)
-      (prog1 (buffer-substring (point-min) (point-max))
-        (delete-region (point-min) (point-max))))))
+  (corba-in-work-buffer
+    (insert 1)                        ; Byte order
+    (apply closure args)
+    (buffer-substring (point-min) (point-max))))
 
 (defun corba-write-typecode (tc)
   (let ((kind (corba-typecode-kind tc))
@@ -259,6 +283,7 @@ or the IOR.")
 		  (corba-write-ulong (car tagpair))
 		  (corba-write-osequence (cdr tagpair)))))
 
+
 (defun corba-write-marshal (arg type)
   (let (kind params)
     (cond ((consp type)
@@ -279,10 +304,11 @@ or the IOR.")
       ((tk_alias) (corba-write-marshal arg (third params)))
       ((tk_TypeCode) (corba-write-typecode arg))
       ((sequence tk_sequence)
-       (let ((_el_type_ (first params)))
-	 (if (eq _el_type_ 'tk_octet)
+       (let ((eltype (first params)))
+	 (if (eq eltype 'tk_octet)
 	     (corba-write-osequence arg)
-	   (corba-write-sequence arg (lambda (arg) (corba-write-marshal arg _el_type_))))))
+           (corba-write-ulong (length arg))
+           (loop for e in arg do (corba-write-marshal e eltype)))))
       ((tk_struct)
        (mapcar (lambda (el)
                   (corba-write-marshal (cdr (assq (corba-lispy-name (first el)) arg))
@@ -314,20 +340,11 @@ or the IOR.")
 
 
 (defun corba-in-encapsulation (obj closure &rest args)
-  (save-excursion
-    (set-buffer (get-buffer-create "*CDR*"))
-    (setq buffer-undo-list t)
+  (corba-in-work-buffer
+    (insert obj)
     (goto-char (point-min))
-    (let ((old-byte-order corba-byte-order))
-      (save-restriction
-        (unwind-protect
-            (progn (insert obj)
-                   (narrow-to-region (point-min) (point))
-                   (goto-char (point-min))
-                   (setq corba-byte-order (corba-read-octet))
-                   (apply closure args))
-          (delete-region (point-min) (point-max))
-          (setq corba-byte-order old-byte-order))))))
+    (setq corba-byte-order (corba-read-octet))
+    (apply closure args)))
 
 
 (defmacro corba-read-number (size signed)
@@ -511,19 +528,27 @@ or the IOR.")
     (unless (and pp (eq (process-status (cdr pp)) 'open))
       (unless hp
 	(push (setq hp (cons host nil)) corba-iiop-connections))
-      (let ((buffer (if pp (process-buffer (cdr pp))
-		      (generate-new-buffer "*IIOP*"))))
-	(save-excursion
-	  (set-buffer buffer)
-	  (setq buffer-undo-list nil)
-	  (setq corba-message-size nil)
-	  (erase-buffer))
-	(let ((proc (open-network-stream "iiop" buffer host port)))
-	  ;; FIXME: should I check if open
-	  (if pp
-	      (setcdr pp proc)
-	    (setq pp (cons port proc))
-	    (push pp (cdr hp))))))
+      (when pp
+        (let ((proc (cdr pp)))
+          (let ((buffer (process-buffer proc)))
+            (when buffer (kill-buffer buffer)))
+          (delete-process proc)))
+      (let ((buffer (generate-new-buffer " *IIOP*")))
+        (save-excursion
+          (set-buffer buffer)
+          (setq buffer-undo-list nil)
+          (setq corba-message-size nil)
+          (erase-buffer))
+        (let ((proc
+               (condition-case errinfo
+                   (open-network-stream "iiop" buffer host port)
+                 (error (kill-buffer buffer)
+                        (signal (car errinfo) (cdr errinfo))))))
+          ;; FIXME: should I check if open
+          (if pp
+              (setcdr pp proc)
+            (setq pp (cons port proc))
+            (push pp (cdr hp))))))
     (cdr pp)))
 
 (defun corba-get-clients ()
@@ -578,10 +603,7 @@ the server that no response is excpected."
     (setf (corba-request-req-id req) (incf corba-request-id-seq))
     (setf (corba-request-client req) client)
     (setf (corba-request-result req) t)
-    (save-excursion
-      (set-buffer (get-buffer-create "*REQ*"))
-      (setq buffer-undo-list t)
-      (erase-buffer)
+    (corba-in-work-buffer
       (cond
        ((eq operation 'locate)
         (corba-write-giop-header 3)		;LocateRequest
