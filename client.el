@@ -38,7 +38,7 @@
 (put 'tk_string 'tk-params '(tk_ulong))
 (put 'tk_wstring 'tk-params '(tk_ulong))
 (put 'tk_array 'tk-params t)
-n(put 'tk_alias 'tk-params '(complex string string tk_TypeCode))
+(put 'tk_alias 'tk-params '(complex string string tk_TypeCode))
 (put 'tk_except 'tk-params t)
 
 (defstruct corba-type-code

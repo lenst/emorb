@@ -171,6 +171,28 @@
 	do (progn
 	     (corba-request-get-response r)
 	     (message "Recv %d" (corba-request-req-id r)))))
+
+(defun test-fnorb-mass (&optional obj max)
+  (setq obj (or obj ns))
+  (setq max (or max 10))
+  (loop for r
+	in (loop for i to max collect
+		 (let ((req
+			(make-corba-request
+			 :object obj
+			 :operation '("_is_a"
+				      (("id" string))
+				      (("" tk_boolean)))
+			 :arguments (list "IDL:omg.org/CORBA/Object:1.0"))))
+		   (corba-request-send req)
+		   (message "Send %d" (corba-request-req-id req))
+		   req))
+	for i from 0
+	do (progn
+	     (message "Recv %d => %d: %s" i
+		      (corba-request-req-id r)
+		      (corba-request-get-response r)))))
+
 
 ;;;; Test UrlDB
 
