@@ -54,25 +54,23 @@
 
 (defun* ls (&key start avoid (recursive t))
   (unless start
-    (unless default-name-service
-      (setq default-name-service
-	    (corba-orb-resolve-initial-references "NameService")))
-    (setq start default-name-service))
-  (unless (member (corba-object-object-key start) avoid)
-    (push (corba-object-object-key start) avoid)
-    (let ((result (namingcontext.list start 1000)))
-      (loop for binding in (first result)
-	    collect
-	    (cons (mapconcat (lambda (nc) (corba-struct-get nc 'id))
-			     (corba-struct-get binding 'binding-name)
-			     "/")
-		  (if recursive
-		      (let ((child
-			     (namingcontext.resolve
-			      start (corba-struct-get binding 'binding-name))))
-			(if (eq (corba-struct-get binding 'binding-type) 1)
-			    (cons 'context (ls :start child :avoid avoid))
-			  (corba-object-id child)))))))))
+    (setq start (corba-orb-resolve-initial-references "NameService")))
+  (unless (member (corba-object-key start) avoid)
+    (push (corba-object-key start) avoid)
+    (let ((result (corba-invoke start "list" 1000)))
+      (loop
+       for binding in (first result) collect
+       (cons
+        (mapconcat (lambda (nc) (corba-struct-get nc 'id))
+                   (corba-struct-get binding 'binding-name)
+                   "/")
+        (if recursive
+            (let ((child
+                   (car (corba-invoke start "resolve"
+                                      (corba-struct-get binding 'binding-name)))))
+              (if (eq (corba-struct-get binding 'binding-type) 1)
+                  (cons 'context (ls :start child :avoid avoid))
+                (corba-object-id child)))))))))
 
 
 ;;;; IR-test
@@ -191,3 +189,32 @@
 		       (("" object)))
 	  :arguments (list name))))
     (car (corba-request-invoke req)) ))
+
+;;;; Constructing structs
+
+(defun name (&rest strseq)
+  (mapcar (lambda (id)
+            (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
+                          'id id 'kind ""))
+          strseq))
+
+(defun example2 ()
+  (let ((ns (corba-orb-resolve-initial-references "NameService")))
+    (corba-invoke ns "bind"
+                  (name "dev" "ir")
+                  (corba-get-ir))
+    (corba-invoke ns "resolve" (name "dev" "ir"))))
+
+
+(defun ils (&optional start)
+  (unless start
+    (setq start (corba-orb-resolve-initial-references "NameService")))
+  (destructuring-bind (l i)
+      (corba-invoke start "list" 0)
+    (unless (corba-object-is-nil i)
+      (prog1 (loop for (f b) = (corba-invoke i "next_one")
+                   while (not f)
+                   collect (corba-struct-get
+                            (elt (corba-struct-get b 'binding-name) 0)
+                            'id))
+        (corba-invoke i "destroy")))))
