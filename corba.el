@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.4 1998/01/28 20:27:35 lenst Exp $
+;; Version: $Id: corba.el,v 1.5 1998/01/28 22:25:40 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; 21-May-95|$Revision: 1.4 $||
+;; $Date: 1998/01/28 22:25:40 $|$Revision: 1.5 $||
 
 ;;; Commentary:
 
