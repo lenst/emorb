@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.15 1999/04/19 18:21:31 lenst Exp $
+;; Version: $Id: corba.el,v 1.16 1999/11/09 16:14:44 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 1999/04/19 18:21:31 $|$Revision: 1.15 $||
+;; $Date: 1999/11/09 16:14:44 $|$Revision: 1.16 $||
 
 ;;; Commentary:
 
@@ -906,6 +906,16 @@ Result is the list of the values of the out parameters."
 	    (corba-typecode-from-def id))))
 
 
+(defun corba-get-objects-interface (object)
+  (condition-case exc
+      (let ((idef
+             (car (corba-invoke object "_interface"))))
+        (if idef
+            (corba-interface-from-def-cached nil idef)))
+    (corba-system-exception
+     (message "_interface: %s" exc)
+     nil)))
+
 ;; Interface:
 (defun corba-object-create-request (object op args)
   "Create a request object for an operation on a CORBA object.
@@ -915,16 +925,17 @@ IDL-defition.
     This functions requires that the interface for the
 object is known to the ORB, either from an explicit definition of the
 interface or from an Interface Repository.
-    OP can also be a list (INTERFACE-ID OP-NAME) to use the operation definition
-from a specific interface inditified by INTERFACE-ID, the interface repository ID."
-  (let* ((interface-id (if (consp op)
-                         (first op)
-                       (corba-object-id object)))
-         (interface (corba-get-interface interface-id))
-	 (opdef (corba-find-opdef interface
-                                  (if (consp op)
-                                      (second op)
-                                    op))))
+    OP can also be a list (INTERFACE-ID OP-NAME) to use the operation
+definition from a specific interface inditified by INTERFACE-ID,
+the interface repository ID."
+  (let* ((interface-id (if (consp op) (first op) (corba-object-id object)))
+         (operation (if (consp op) (second op) op))
+	 (opdef
+          (or (corba-find-opdef corba-object-interface operation)
+              (corba-find-opdef (or (corba-has-interface-p interface-id)
+                                    (corba-get-objects-interface object)
+                                    (corba-get-interface interface-id))
+                                operation))))
     (unless opdef
       (error "Undefined operation %s for interface %s"
              op interface-id))
@@ -1199,6 +1210,12 @@ id for the operation."
       (error "InterfaceRepository do not know about %s" id))
     (corba-interface-from-def id def)))
 
+(defun corba-interface-from-def-cached (id def)
+  (unless id
+    (setq id (car (corba-invoke def "_get_id"))))
+  (or (corba-has-interface-p id)
+      (corba-add-interface (corba-interface-from-def id def))))
+
 (defun corba-interface-from-def (id def)
   (unless id
     (setq id (car (corba-invoke def "_get_id"))))
@@ -1208,8 +1225,7 @@ id for the operation."
     (make-corba-interface
      :id id
      :inherit (or (mapcar #'(lambda (idef)
-                              (corba-get-interface
-                               (car (corba-invoke idef "_get_id"))))
+                              (corba-interface-from-def-cached nil idef))
                           (car (corba-invoke def "_get_base_interfaces")))
                   (list corba-object-interface))
      :operations (mapcar (lambda (o)
@@ -1227,7 +1243,7 @@ id for the operation."
 (defun corba-typecode-from-def (def)
   (when (stringp def)
     (let ((id def))
-      (message ";;; Getting type %s" id)
+      (message "Getting type %s" id)
       (setq def (car (corba-invoke (corba-get-ir) "lookup_id" id)))
       (when (corba-object-is-nil def)
 	(error "InterfaceRepository do not know about %s" id))))
