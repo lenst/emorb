@@ -143,8 +143,23 @@
 (defun name (&rest strseq)
   (mapcar (lambda (id)
             (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
-                          'id id 'kind ""))
+                          'id (if (consp id) (car id) id)
+                          'kind (if (consp id) (cdr id) "")))
           strseq))
+
+(defun example1 ()
+  (let ((ns (corba-orb-resolve-initial-references nil "NameService")))
+    (loop for (n k b) in `(;;("hej" o ,(make-object))
+                           ;;("."   o ,(servant-this ns))
+                           ("dev" "")
+                           ("test" ""))
+          do (if b
+                 (corba-invoke ns "bind"
+                               (name (cons n k))
+                               b)
+               (corba-invoke ns "bind_new_context"
+                               (name (cons n k)))))
+    ns))
 
 (defun example2 ()
   (let ((ns (corba-orb-resolve-initial-references nil "NameService")))
