@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.24 2001/12/18 12:36:35 lenst Exp $
+;; Version: $Id: corba.el,v 1.25 2002/01/21 23:00:31 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2001/12/18 12:36:35 $|$Revision: 1.24 $||
+;; $Date: 2002/01/21 23:00:31 $|$Revision: 1.25 $||
 
 ;;; Commentary:
 
@@ -634,7 +634,7 @@ the server that no response is excpected."
 	      (setf (corba-object-forward object) nil)
 	      (corba-request-send-to req object flags))
 	     (t
-	      (signal exc)))))))
+	      (signal (car exc) (cdr exc))))))))
 
 (defun corba-request-send-to (req object &optional flags)
   (let* ((client (corba-get-connection
