@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.28 2004/11/12 13:48:54 lenst Exp $
+;; Version: $Id: corba.el,v 1.29 2005/02/10 14:08:53 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2004/11/12 13:48:54 $|$Revision: 1.28 $||
+;; $Date: 2005/02/10 14:08:53 $|$Revision: 1.29 $||
 
 ;;; Commentary:
 
@@ -794,14 +794,81 @@ Result is the list of the values of the out parameters."
 
 ;; Interface:
 (defun corba-orb-string-to-object (orb str)
-  (if (string-match "IOR:\\([a-fA-F0-9]+\\)" str)
-      (corba-in-encapsulation
-       (loop for i from (match-beginning 1) below (match-end 1) by 2
-	     concat (char-to-string
-		     (+ (* 16 (corba-hex-to-int (aref str i)))
-			(corba-hex-to-int (aref str (1+ i))))))
-       #'corba-read-ior)
-    (error "Illegal string object")))
+  (if (string-match "\\(\\w+\\):" str)
+      (let ((method (match-string 1 str))
+            (start (match-end 0)))
+        (cond ((string-equal method "IOR")
+               (corba-decode-iorstring orb str start))
+              ((string-equal method "file")
+               (corba-decode-file-ior orb str start))
+              ((string-equal method "corbaloc")
+               (corba-decode-corbaloc orb str start))
+              ((string-equal method "http")
+               (corba-decode-http-ior orb str start))
+              (t
+               (error "Unsupported method in IOR URL: %S" method))))
+      (error "Illegal string object")))
+
+
+(defun corba-decode-iorstring (orb str start)
+  ;;(string-match "IOR:\\([a-fA-F0-9]+\\)" str)
+  (let* ((len (floor (- (length str) start) 2))
+         (buf (make-string len 0)))
+    (dotimes (i len)
+      (aset buf i
+            (let ((pos (+ start i i)))
+              (+ (* 16 (corba-hex-to-int (aref str pos)))
+                 (corba-hex-to-int (aref str (1+ pos)))))))
+    (corba-in-encapsulation buf #'corba-read-ior)))
+
+;; (corba-orb-string-to-object nil "IOR:01000000010000000000000000000000")
+
+
+(defun corba-decode-corbaloc (orb str start)
+  (let ((key-pos
+         (if (string-match "/" str)
+             (match-beginning 0)
+             (1- (length str)))))
+    (let ((addr-list (substring str start key-pos))
+          (key-string (substring str (1+ key-pos))))
+      (let ((key (corba-url-decode key-string))
+            (addrs (mapcar #'corba-parse-obj-addr
+                           (split-string addr-list ","))))
+        (cond ((eq (car addrs) :rir)
+               (corba-orb-resolve-initial-references orb key))
+              (t
+               (let ((addr (car addrs)))
+                 ;;FIXME: what about other profiles? version?
+                 (make-corba-object
+                  :id ""
+                  :host (cadr addr)
+                  :port (caddr addr)
+                  :key key))))))))
+  
+
+(defun corba-parse-obj-addr (str)
+  (cond ((string-equal "rir:" str) :rir)
+        ((string-match
+          "\\(iiop\\)?:\\(\\([0-9.]+\\)@\\)?\\([^:]*\\)\\(:\\([0-9]+\\)\\)?\\'"
+                       str)
+         (let ((version (match-string 3 str))
+               (host    (match-string 4 str))
+               (port    (match-string 6 str)))
+           (unless version (setq version "1.0"))
+           (when (equal host "") (setq host "localhost"))
+           (if port
+               (setq port (parse-integer port))
+               (setq port 2809))
+           (list version host port)))
+        (t
+         (error "Illgal object addres: %S" str))))
+
+
+(defun corba-url-decode (str)
+  (if (fboundp 'url-unhex-string)
+      (url-unhex-string str)
+      str))
+
 
 ;; Interface:
 (defun corba-orb-object-to-string (orb object)
