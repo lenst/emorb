@@ -272,37 +272,23 @@
 ;;;; GIOP / IIOP stuff
 
 (defvar *message-size* 0)
+(make-variable-buffer-local '*message-size*)
 (defvar *giop-version* )
+(make-variable-buffer-local '*giop-version*)
 
-
-(defun cdr-giop-header (type msgthunk)
+(defun cdr-giop-header (type)
   (insert "GIOP" 1 0 1
 	  (cond ((numberp type) type)
 		((eq type 'request) 0)
 		((eq type 'reply) 1)
 		(t (error "Message type %s" type))))
-  (cdr-ulong 0)
-  (let ((pos (point)))
-    (funcall msgthunk)
-    (let ((len (- (point) pos)))
-      (goto-char (- pos 4))
-      (delete-char 4)
-      (cdr-ulong len))))
+  ;; Place for message length to be patched in later
+  (cdr-ulong 0))
 
-
-(defun cdr-simple-request (objectkey operation &rest opargs)
-  (erase-buffer)
-  (cdr-giop-header
-   'request
-   (lambda ()
-     (cdr-ulong 0)			;context
-     (cdr-ulong 4711)			;request id
-     (cdr-octet 1)			;respons expected
-     (cdr-osequence objectkey)
-     (cdr-string operation)
-     (cdr-osequence "")			;principal
-     (loop for arg in opargs
-	   do (cdr-guess arg)))))
+(defun cdr-giop-set-message-length ()
+  (goto-char 9)
+  (cdr-ulong (- (point-max) 13))
+  (delete-char 4))
 
 
 (defun cdr-read-giop-header ()
@@ -376,10 +362,14 @@
       (let ((buffer (generate-new-buffer "*IIOP*")))
 	(save-excursion
 	  (set-buffer buffer)
-	  (setq buffer-undo-list nil)))
-      (setq pp (cons port (open-network-stream "iiop" buffer host port)))
+	  (setq buffer-undo-list nil))
+	(setq pp (cons port (open-network-stream "iiop" buffer host port))))
       (push pp (cdr hp)))
     (cdr pp)))
+
+(defun get-clients ()
+  (loop for hp in *iiop-connections*
+	nconc (loop for pp in (cdr hp) collect (cdr pp))))
 
 
 ;;;; Requests
@@ -394,37 +384,35 @@
 
 (defvar *request-id-seq* 0)
 (defvar *corba-waiting-requests* nil)
-(make-variable-buffer-local '*corba-waiting-requests*)
 
 (defun corba-request-send (req &optional flags)
   (let* ((object (corba-request-object req))
 	 (client (get-connection
 		  (corba-object-host object)
 		  (corba-object-port object)))
-	 (object-key (corba-object-object-key object))
 	 (operation (corba-request-operation req)))
-    (unless (corba-request-req-id req)
-      (setf (corba-request-req-id req) (incf *request-id-seq*)))
+    (setf (corba-request-req-id req) (incf *request-id-seq*))
     (setf (corba-request-client req) client)
+    (setf (corba-request-result req) t)
     (save-excursion
       (set-buffer (get-buffer-create "*REQ*"))
       (setq buffer-undo-list t)
       (erase-buffer)
-      (cdr-giop-header
-       'request
-       (lambda ()
-	 (cdr-ulong 0)			;context
-	 (cdr-ulong (corba-request-req-id req))
-	 (cdr-octet 1)			;respons expected
-	 (cdr-osequence object-key)
-	 (cdr-string (first operation))
-	 (cdr-osequence "")		;principal
-	 (loop for arg in (corba-request-arguments req)
-	       for desc in (second operation)
-	       do (cdr-marshal arg (second desc)))))
+      (cdr-giop-header 'request)
+      (cdr-ulong 0)			;context
+      (cdr-ulong (corba-request-req-id req))
+      (cdr-octet (if (memq 'no-response flags) 0 1)) ;respons expected
+      (cdr-osequence (corba-object-object-key object))
+      (cdr-string (first operation))
+      (cdr-osequence "")		;principal
+      (loop for arg in (corba-request-arguments req)
+	    for desc in (second operation)
+	    do (cdr-marshal arg (second desc)))
+      (cdr-giop-set-message-length)
       (process-send-region client (point-min) (point-max))
-      (unless (memq 'invoke flags)
-	(push req *corba-waiting-requests*)))))
+      ;;(message "Request %d sent" (corba-request-req-id req))
+      (accept-process-output)
+      (push req *corba-waiting-requests*))))
 
 
 (defun corba-read-reply (req)
@@ -448,6 +436,7 @@
      (corba-request-send req)
      nil)))
 
+
 (defun corba-get-next-respons-1 (client)
   (save-excursion
     (set-buffer (process-buffer client))
@@ -468,18 +457,19 @@
 	   (let* ((service-context (cdr-read-service-context))
 		  (request-id (cdr-read-ulong))
 		  (req
-		   (assoc* request-id *corba-waiting-requests*
-			   :key corba-request-req-id)))
-	     (unless req
-	       (error "Unexpected respons for id %s" request-id))
-	     (setq *corba-waiting-requests*
-		   (delq req *corba-waiting-requests*))
-	     (and (corba-read-reply req)
-		  req)))))
+		   (loop for req in *corba-waiting-requests*
+			 if (= request-id (corba-request-req-id req))
+			 return req)))
+	     (cond (req
+		    (setq *corba-waiting-requests*
+			  (delq req *corba-waiting-requests*))
+		    (and (corba-read-reply req)
+			 req))
+		   (t
+		    (message "Unexpected respons for id %s" request-id)))))))
 	((5)				;Close Connection
 	 (delete-process client)
 	 (error "Connection closed")))))))
-
 
 (defun corba-get-next-respons (&optional flags)
   (let ((req nil))
@@ -490,80 +480,38 @@
      do (accept-process-output))
     req))
 
-
-(defun corba-get-reply (req)
-  (let* ((object (corba-request-object req))
-	 (client (corba-request-client req))
-	 (object-key (corba-object-object-key object))
-	 (operation (corba-request-operation req)))
-    (save-excursion
-      (set-buffer "*IIOP*")		; depends on client?
-      (when *message-size*
-	(goto-char (point-min))
-	(delete-char 12)		; header size
-	(delete-char *message-size*)
-	(setq *message-size* nil))
-      (while (< (point-max) 12)
-	(accept-process-output))
-      (goto-char (point-min))
-      (ecase (cdr-read-giop-header)
-	((1)				; Reply
-	 (while (< (point-max) *message-size*)
-	   (accept-process-output))
-	 (ecase (cdr-read-reply-header)
-	   ((0)				; No Exception
-	    (loop for desc in (third operation)
-		  collect (cdr-unmarshal (second desc))))
-	   ((1)				; User Exception
-	    (error "NIY"))
-	   ((2)				; System Exception
-	    (let* ((id (cdr-read-string))
-		   (minor (cdr-read-ulong))
-		   (status (cdr-read-ulong)))
-	      (signal 'corba-system-exception
-		      (list id minor status))))
-	   ((4)				; Forward
-	    (setf (corba-object-forward object)
-		  (cdr-read-ior)))))
-	((5)				;Close Connection
-	 (error "Connection closed"))))))
-
-
 (defun corba-request-get-response (req &optional flags)
   (let* ((client (corba-request-client req)))
-    (save-excursion
-      (set-buffer (process-buffer client))
-      (when *message-size*
-	(goto-char (point-min))
-	(delete-char 12)		; header size
-	(delete-char *message-size*)
-	(setq *message-size* nil))
-      (while (< (point-max) 12)
-	(accept-process-output))
-      (goto-char (point-min))
-      (ecase (cdr-read-giop-header)
-	((1)				; Reply
-	 (while (< (point-max) *message-size*)
-	   (accept-process-output))
-	 (ecase (cdr-read-reply-header)
-	   ((0)				; No Exception
-	    (setf (corba-request-result req)
-		  (loop for desc in (third operation)
-			collect (cdr-unmarshal (second desc)))))
-	   ((1)				; User Exception
-	    (error "NIY"))
-	   ((2)				; System Exception
-	    (let* ((id (cdr-read-string))
-		   (minor (cdr-read-ulong))
-		   (status (cdr-read-ulong)))
-	      (signal 'corba-system-exception
-		      (list id minor status))))
-	   ((4)				; Forward
-	    (setf (corba-object-forward object)
-		  (cdr-read-ior)))))
-	((5)				;Close Connection
-	 (error "Connection closed"))))))
+    (loop while (eq t (corba-request-result req))
+	  do (corba-get-next-respons-1 client)
+	  until (memq 'no-wait flags)
+	  do (accept-process-output)))
+  (not (eq t (corba-request-result req))))
 
+
+(defun corba-request-invoke (req &optional flags)
+  (corba-request-send req)
+  (corba-request-get-response req)
+  (corba-request-result req))
+
+
+
+;;;; Other CORBA module stuff
+
+(defun corba-file-to-object (file)
+  (corba-string-to-object
+   (save-excursion
+     (set-buffer (find-file-noselect file))
+     (goto-char (point-min))
+     (end-of-line 1)
+     (buffer-substring (point-min) (point)))))
+
+(defun corba-orb-resolve-initial-references (name)
+  (cond
+   ((string-equal name "NameService")
+    (corba-file-to-object "/tmp/NameService"))
+   ((string-equal name "InterfaceRepository")
+    (corba-file-to-object "/tmp/ir"))))
 
 (defun object.is-a (obj id)
   (let ((req
@@ -573,8 +521,7 @@
 		       (("id" string))
 		       (("" bool)))
 	  :arguments (list id))))
-    (corba-invoke req)
-    (car (corba-get-reply req)) ))
+    (car (corba-request-invoke req))))
 
 
 (defsubst corba-hex-to-int (ch)
@@ -636,8 +583,18 @@
 					     ulong)))
 			 ("bi" (object BindingIterator))))
 	  :arguments (list how-many))))
-    (corba-invoke req)
-    (corba-get-reply req)))
+    (corba-request-invoke req)))
+
+
+
+
+(defun makereq-namingcontext.resolve (obj name)
+  (make-corba-request
+   :object obj
+   :operation '("resolve"
+		(("name" (sequence cosnaming-name-component)))
+		(("" object)))
+   :arguments (list name)))
 
 (defun namingcontext.resolve (obj name)
   (let ((req
@@ -647,9 +604,10 @@
 		       (("name" (sequence cosnaming-name-component)))
 		       (("" object)))
 	  :arguments (list name))))
-    (corba-invoke req)
-    (car (corba-get-reply req)) ))
+    (car (corba-request-invoke req)) ))
 
+
+(defvar obj.ns nil)
 
 (defun ls (&optional start indent avoid)
   (unless start
@@ -658,7 +616,15 @@
     (setq indent 0))
   (unless (member (corba-object-object-key start) avoid)
     (push (corba-object-object-key start) avoid)
-    (let ((result (namingcontext.list start 1000)))
+    (let ((result (namingcontext.list start 1000))
+	  (reqs nil))
+      (loop for binding in (first result)
+	    if (= (second binding) 1)
+	    do (let ((r (makereq-namingcontext.resolve start (first binding))))
+		 (corba-request-send r)
+		 (accept-process-output)
+		 (push r reqs)))
+      (setq reqs (nreverse reqs))
       (loop for binding in (first result)
 	    do (princ (format "%s%s: %s\n"
 			      (make-string indent ? )
@@ -667,18 +633,14 @@
 					 (first binding)
 					 "/")
 			      (second binding)))
+	    (sit-for 0)
 	    (when (= (second binding) 1)
-	      (ls (namingcontext.resolve start (first binding))
+	      (ls (let ((r (pop reqs)))
+		    (corba-request-get-response r)
+		    (car (corba-request-result r)))
 		  (1+ indent)
 		  avoid))))))
 
-
-(defconst obj.ns
-  (make-corba-object
-   :id "IDL:omg.org/CosNaming/NamingContext:1.0"
-   :object-key "Noname/ns;root"
-   :host "t2"
-   :port 20515))
 
 ;;;; IR-test
 
@@ -692,8 +654,7 @@
 		       (("search_id" string))
 		       (("" object)))
 	  :arguments (list search-id))))
-    (corba-invoke req)
-    (car (corba-get-reply req)) ))
+    (car (corba-request-invoke req)) ))
 
 (defun container.lookup (obj name)
   (unless (object.is-a obj "IDL:omg.org/CORBA/Container:1.0")
@@ -705,8 +666,7 @@
 		       (("scoped_name" string))
 		       (("" object)))
 	  :arguments (list name))))
-    (corba-invoke req)
-    (car (corba-get-reply req)) ))
+    (car (corba-request-invoke req)) ))
 
 
 (defun container.contents (obj limit-type exclude-inherited)
@@ -720,8 +680,7 @@
 			("exclute_inherited" bool))
 		       (("" (sequence object))))
 	  :arguments (list limit-type exclude-inherited))))
-    (corba-invoke req)
-    (car (corba-get-reply req)) ))
+    (car (corba-request-invoke req)) ))
 
 
 (defun corba-check-type (obj id)
@@ -747,5 +706,42 @@
 		       ()
 		       (("" contained.description)))
 	  :arguments nil)))
-    (corba-invoke req)
-    (car (corba-get-reply req)) ))
+    (car (corba-request-invoke req)) ))
+
+
+
+(defun test-mass ()
+  (loop for r
+	in (loop for i to 1000 collect
+		 (let ((req
+			(make-corba-request
+			 :object ir
+			 :operation '("lookup"
+				      (("scoped_name" string))
+				      (("" object)))
+			 :arguments (list
+				     "IDL:omg.org/CosNaming/NamingContext:1.0"))))
+		   (corba-request-send req)
+		   (message "Send %d" (corba-request-req-id req))
+		   req))
+	do (progn
+	     (corba-request-get-response r)
+	     (message "Recv %d" (corba-request-req-id r)))))
+
+;;;; Test UrlDB
+
+(defvar urldb-database nil)
+
+(defun setup-urldb ()
+  (setq urldb-database
+	(corba-file-to-object "/triton:/tmp/udb")))
+
+(defun urldb.get-category (db name)
+  (let ((req
+	 (make-corba-request
+	  :object db
+	  :operation '("get_category"
+		       (("name" string))
+		       (("" object)))
+	  :arguments (list name))))
+    (car (corba-request-invoke req)) ))
