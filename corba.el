@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.19 2000/06/07 14:51:34 lenst Exp $
+;; Version: $Id: corba.el,v 1.20 2000/06/25 17:14:22 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2000/06/07 14:51:34 $|$Revision: 1.19 $||
+;; $Date: 2000/06/25 17:14:22 $|$Revision: 1.20 $||
 
 ;;; Commentary:
 
@@ -545,7 +545,8 @@ If nil, the actual value will be returned.")
           for encaps = (corba-read-osequence)
 	  if (= tag 0)
 	  do (corba-in-encapsulation encaps
-                                     #'corba-read-iiop-profile-body reference))
+                                     #'corba-read-iiop-profile-body reference)
+          do (push (cons tag encaps) (corba-object-profiles reference)))
     (if (or (not (equal type-id ""))
             (corba-object-key reference))
         reference
