@@ -4,12 +4,12 @@
 @settitle corba
 @c @setchapternewpage odd
 @c %**end of header
-@c $Id: corba.texi,v 1.1 1998/01/28 22:11:53 lenst Exp $
+@c $Id: corba.texi,v 1.2 1998/01/29 21:21:04 lenst Exp $
 
 @defun corba-object-create-request object op args
 Create a request object for the corba @var{object} and the operation
 @var{op} on the arguments @var{args}.  The arguments are the
-in-paramenters of the operation in the IDL-defition. This functions
+in-paramenters of the operation in the IDL-definition. This functions
 requires that the interface for the object is known to the orb, either
 from an explicit definition of the interface or from an Interface
 Repository.
@@ -21,14 +21,14 @@ list of the values of the out parameters.
 @end defun
 
 @defun corba-request-send request &optional flags
-Send the request to preform the remote CORBA operation defined by
+Send the request to perform the remote CORBA operation defined by
 @var{request}.  To get the response from the server use
-@code{corba-request-get-response} or @code{corba-get-next-respons}.  The
+@code{corba-request-get-response} or @code{corba-get-next-response}.  The
 result from the operation will then be available with
 @code{corba-request-result}.  Several requests can be sent before the
 getting the response.  The flags argument is a list of symbols. The only
 recognized symbol is @code{no-response} that indicates to the server
-that no response is excpected.
+that no response is expected.
 @end defun
 
 @defun corba-request-get-response request &optional flags
@@ -45,13 +45,13 @@ Describes a request (an operation on a CORBA object) to be sent to a
 remote server.  The request has attributes for object, operation,
 arguments, result, ...
 
-A @code{corba-request} can be created from a object with
+A @code{corba-request} can be created from an object with
 @code{corba-object-create-request} or directly with
 @code{make-corba-request}.
 @end deftp
 
 @deftp {Data type} corba-object
-A object reference to a CORBA object.  The object can be a nil object,
+An object reference to a CORBA object.  The object can be a nil object,
 recognized with the @code{corba-object-is-nil} predicate.  The type of
 the object can be checked with @code{corba-object-is-a}.  The expression
 @code{(corba-object-is-a obj "IDL:omg.org/CORBA/Object:1.0")} should
@@ -66,10 +66,10 @@ operation.
 @end defun
 
 @defun corba-orb-resolve-initial-references orb name
-Return a object reference to the object named by @var{name}.  The
+Returns an object reference to the object named by @var{name}.  The
 @var{orb} parameter should be the value from @code{corba-orb-init}
 The names recognized are @code{NameService} and
-@code{InterfaceRepositiory}.  You need to tell the orb the IOR for
+@code{InterfaceRepository}.  You need to tell the orb the IOR for
 theses by setting the @code{corba-name-service} and
 @code{corba-interface-repository} variables.
 @end defun
@@ -85,8 +85,8 @@ The IOR or the name of a file containing the IOR of the Interface Repository.
 
 @defun corba-invoke object op &rest args
 Invoke the operation @var{op} on the object reference @var{object} with
-the argumets @var{args}.  The results of the operation is returned as a
-list.  This is equvialent of creating a request with
+the arguments @var{args}.  The results of the operation is returned as a
+list.  This is equivalent of creating a request with
 @code{corba-object-create-request} and calling
 @code{corba-request-invoke} on it.  Then getting the result with
 @code{corba-request-result}.
