@@ -1,0 +1,193 @@
+--- emorb ---
+-------------
+
+* 20050105
+----------
+New mapping:
+
+Typecode = list starting with a keyword symbol for the kind of
+typecode followed by parameters. Eg. (:tk_string 0)
+
+For simple typecodes like (:tk_long), (:tk_ulong)
+
+For string, wstring parameter is max length, or 0 if unlimited.
+E.g. (:tk_string 12), (:tk_wstring 0)
+
+Typecodes with id always has parmeter 1 = ID and parameter 2 = name.
+E.g. (:tk_objref "IDL:Hello/World:1.0" "World")
+
+(:tk_struct "IDL:IOP/ServiceContext:1.0" "ServiceContext"
+   (("context_id" (:tk_alias "IDL:IOP/ServiceId:1.0" "ServiceId" (:tk_ulong)))
+    ("context_data" (:tk_sequence (:tk_octet) 0))))
+
+Parameters that are typecodes themselves can be indirect references to
+typecodes that are in the repository. The reference is a string, the
+ID of the typecode. Therefor indirect references can only be to
+typecodes that have an ID.
+
+
+(corba-tcref-kind x) => :tk_objref
+(corba-tcref-id x)   => "IDL:Hello/World:1.0"
+(corba-tcref-name x) => "World"
+
+Alt.
+(corba-get x :id)
+(corba-ref x :id)
+
+
+String: string
+Sequence: list
+Struct: Hash-table ?  Alt alist/plist,  (:struct (k . v) ..)
+Long, ...: number
+Any: (:any tc val)
+Array: Vector
+Union: (:union discr value)
+Boolean: t/nil
+
+
+(corba-ref struct :k)
+(corba-set struct :k v)
+(corba-ref tc {:kind :id :name :members :length :content-type})
+
+
+Internal repository:
+(corba-get-typecode absolute-name) => ..
+(corba-get-interface absolute-name)
+
+Perhaps in all interface functions accept both absloute-name and
+repository-id.
+
+
+(corba-funcall "::CosNaming::list" nc 100)
+(corba-new "::CosNaming::NameComponent" :id "hej" :kind "")
+
+* 20050106
+----------
+
+H(id) -> tc
+H(name) /
+
+Perhaps type marker in car should be normal symbols not keywords as
+keywords could be used for enums.
+
+Struct: (struct (k . v) ..)
+Any: (any tc val)
+Array: Vector
+Union: (union discr value)
+Object: (objref "id" raw-profiles parsed-profiles selected-profile ... )
+
+
+How to access and create Union?
+
+(union :x 12)
+
+
+
+Alternatives for struct representation
+--------------------------------------
+
+Assuming we don't need exact type info
+Does the struct type have to be distinct from, e.g., sequence, array
+or objref?
+
+I think only corba-get need to distiguish enough to access fields.
+(objref could look like a struct with fields and all. Or the type
+could be a symbol not a vector. [objref "foo" ...]) Caching would work
+the same but ..
+
+
+
+k = keyword name for member, v = member value
+
+1. (struct (k . v) ..)
+Pro: Easy
+Con: Redundant storage of keys.
+
+
+2. (struct . hash-table{k:v})
+Pro: Compared to 3, can allow easy multiple formats for struct
+Con: evan more storage than 3
+
+
+3. hash-table
+Pro: Fast uniform access even for large structs.
+Con: Possibly lot of overhead in storage and speed for small structs
+
+
+4. (struct (k1 k2 ..) v1 v2 ..)
+Pro: Could share key list with all instances of same struct type
+     Could possibly cache key index for faster access (doubtful if it
+     is a significant speedup as it is a list)
+Con: not so easy to read when printed
+
+
+
+5. [[struct k1 k2 ..] v1 v2 ..]
+Pro: Compact, can share key vector
+     Could cash key index for faster access
+Con: Need other format for array if they should be distinct (array v..)
+
+
+6. (struct k1 v1 k2 v2 ..)
+
+
+
+* 20050107
+----------
+
+(corba-typecode-resolve x) => tc
+where x is { typecode | name-string | id-string | shortcut-keyword }
+shortcut-keyword = typecode kind for primitive typecode
+
+(corba-primitive-typecode keyword) => tc
+  :tk_long => (:tk_long)
+  :tk_octet => (:tk_octet)
+  ..
+  :tk_string => (:tk_string 0)
+
+
+
+Mapping of Enum
+---------------
+
+Keyword symbols
+
+IDL: enum foo {bar, bum};
+-> :bar, :bum
+
+(corba-enum "::foo" 1) => :bum
+(corba-enum-value "::foo" :bum) => 1
+TC: (:tk_enum "IDL:foo:1.0" "foo" ("bar" "bum"))
+enum-cache[TC] => [:bar :bum]
+H["IDL:foo:1.0"] => TC
+H["::foo"] => TC
+
+Any
+---
+(corba-any "::CORBA::Identifier" "Hello") => (any .. "Hello")
+(corba-any :tk_ulong 123) => (any (:tk_ulong) 123)
+(corba-any-value (corba-any :tk_ulong 123)) => 123
+
+Union
+-----
+(corba-new "::MyUnion" :x 123) => (union :foo 123)
+(corba-new "::MyUnion" :union-discriminator :foo :union-value 123)
+
+Struct
+------
+(corba-new "::MyStruct" :x 1 :y 2) => [[struct :x :y] 1 2]
+
+
+* 20050108
+----------
+
+Union
+-----
+Repr: u = (union discr value)
+Accessors: (corba-union-value u) => value
+           (corba-union-discriminator u) => discr
+Constructor: (corba-new-union discr value) => union
+Alt:  (corba-new union-type member-name-keyword value)
+      (corba-new union-type :union-value value :union-discriminator
+      discr)
+
