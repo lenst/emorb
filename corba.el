@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.26 2002/05/16 20:48:35 lenst Exp $
+;; Version: $Id: corba.el,v 1.27 2004/04/19 14:02:44 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2002/05/16 20:48:35 $|$Revision: 1.26 $||
+;; $Date: 2004/04/19 14:02:44 $|$Revision: 1.27 $||
 
 ;;; Commentary:
 
@@ -877,6 +877,8 @@ Result is the list of the values of the out parameters."
                             :raises '())
                 (make-corba-opdef :name "_interface"
                             :outparams '(("" . tk_objref)))
+                (make-corba-opdef :name "_get_interface"
+                            :outparams '(("" . tk_objref)))
                 (make-corba-opdef :name "_non_existent"
                             :outparams '(("" . tk_boolean))))))
 
@@ -920,15 +922,15 @@ Result is the list of the values of the out parameters."
 (defun corba-get-objects-interface (object)
   (condition-case exc
       (let ((idef
-             (car (corba-invoke object "_interface"))))
+             (car (corba-invoke object "_get_interface"))))
         (if idef
             (corba-interface-from-def-cached nil idef)))
     (corba-system-exception
-     (message "_interface: %s" exc)
+     (message "_get_interface: %s" exc)
      nil)
     (end-of-buffer
      ;; Work around ORBit bug in exception marshaling
-     (message "_interface: %s" exc)
+     (message "_get_interface: %s" exc)
      nil)))
 
 
