@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.21 2000/08/03 06:17:09 lenst Exp $
+;; Version: $Id: corba.el,v 1.22 2001/02/28 06:43:27 lenst Exp $
 ;; Keywords: 
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2000/08/03 06:17:09 $|$Revision: 1.21 $||
+;; $Date: 2001/02/28 06:43:27 $|$Revision: 1.22 $||
 
 ;;; Commentary:
 
@@ -236,11 +236,15 @@ If nil, the actual value will be returned.")
 
 (defun corba-write-short (n)
   (corba-write-align 2)
-  (insert n (ash n -8)))
+  (insert n
+          (logand (ash n -8)  255)))
 
 (defun corba-write-ulong (n)
   (corba-write-align 4)
-  (insert n (ash n -8) (ash n -16) (ash n -24)))
+  (insert (logand n           255)
+          (logand (ash n -8)  255)
+          (logand (ash n -16) 255)
+          (logand (ash n -24) 255)))
 
 (defun corba-write-string (s)
   (corba-write-ulong (1+ (length s)))
@@ -1280,6 +1284,15 @@ id for the operation."
           (save-excursion
             (set-buffer (find-file-noselect cookie-file))
             (concat (buffer-string) "\0")))))
+
+
+;;;;
+
+(defun corba-reset-all ()
+  (loop for c in (corba-get-clients)
+        do (delete-process c))
+  (setq corba-iiop-connections nil)
+  (setq corba-waiting-requests nil))
 
 
 
