@@ -1,0 +1,6 @@
+Fri Mar 17 20:10:24 2000  Lennart Staflin  <lenst@lysator.liu.se>
+
+	* corba.el (corba-request-get-response): get the current client in
+	every loop iteration. The client may change if there is a
+	forwarding of the object.
+
