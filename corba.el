@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.29 2005/02/10 14:08:53 lenst Exp $
+;; Version: $Id: corba.el,v 1.30 2005/02/23 18:41:57 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2005/02/10 14:08:53 $|$Revision: 1.29 $||
+;; $Date: 2005/02/23 18:41:57 $|$Revision: 1.30 $||
 
 ;;; Commentary:
 
@@ -39,6 +39,7 @@
 ;; union, array, wchar, wstring, better handling of enum
 
 ;; How should overflow in long/ulong be handled?
+;; -> going to float maybe
 
 ;; The typeid in an IOR is optional, handle that case by asking the remote
 ;; object for the interface.
@@ -49,13 +50,13 @@
 ;; Server side:
 ;; probably need a helper program that handles the
 ;; sockets and multiplexes messages.
+;; With emacs 22 it should be possible to implement the server in Emacs Lisp.
 
 ;; Generation of static stubs.
 
 ;; Saving the internal interface repository to a Lisp file for later
 ;; use without a Repository service.
 
-;; Allow nil in a parameter to represent the CORBA NIL object?
 
 
 ;;; Code:
@@ -67,12 +68,12 @@
 (eval-when-compile (load "cl-extra"))   ; This seems to fix some strange autoloading
                                         ; problem.
 
-(defvar corba-name-service "/tmp/NameService"
+(defvar corba-name-service "file:/tmp/NameService"
   "*Reference to the CORBA NameService.
 This should be the name of a file where the name service IOR is stored
 or the IOR.")
 
-(defvar corba-interface-repository "/tmp/InterfaceRepository"
+(defvar corba-interface-repository "file:/tmp/InterfaceRepository"
   "*Reference to the CORBA InterfaceRepository.
 This should be the name of a file where the service IOR is stored
 or the IOR.")
@@ -607,6 +608,10 @@ If nil, the actual value will be returned.")
 (defstruct corba-request
   (object nil)
   (operation nil)
+  (inparams nil)                        ; typecodes for input params 
+  (outparams nil)                       ; typecodes for output params,
+                                        ; inclusive result
+  (raises nil)                          ; allowed exceptions
   (arguments nil)
   (req-id nil)
   (client nil)
@@ -614,6 +619,19 @@ If nil, the actual value will be returned.")
 
 (defvar corba-request-id-seq 0)
 (defvar corba-waiting-requests nil)
+
+
+(defun corba-create-request (proxy operation inparams outparams raises
+                             arguments)
+  (make-corba-request
+   :object proxy
+   :operation operation
+   :outparams outparams
+   :inparams inparams
+   :raises raises
+   :arguments arguments))
+
+
 
 ;; Interface:
 (defun corba-request-send (req &optional flags)
@@ -660,11 +678,11 @@ the server that no response is excpected."
         (corba-write-ulong (corba-request-req-id req))
         (corba-write-octet (if (memq 'no-response flags) 0 1)) ;respons expected
         (corba-write-osequence (corba-object-key object))
-        (corba-write-string (corba-opdef-name operation))
+        (corba-write-string operation)
         (corba-write-osequence corba-principal)		;principal
         (loop for arg in (corba-request-arguments req)
-              for desc in (corba-opdef-inparams operation)
-              do (corba-marshal arg (cdr desc)))))
+              for tc in (corba-request-inparams req)
+              do (corba-marshal arg tc))))
       (corba-write-giop-set-message-length)
       (process-send-region client (point-min) (point-max))
       ;;(message "Request %d sent" (corba-request-req-id req))
@@ -677,9 +695,7 @@ the server that no response is excpected."
   (ecase (corba-read-ulong)
     ((0)				; No Exception
      (setf (corba-request-result req)
-	   (loop for desc in (corba-opdef-outparams
-			      (corba-request-operation req))
-		 collect (corba-unmarshal (cdr desc))))
+           (mapcar 'corba-unmarshal (corba-request-outparams req)))
      t)
     ((1)				; User Exception
      (let* ((id (corba-read-string)))
@@ -779,35 +795,86 @@ Result is the list of the values of the out parameters."
 
 ;;;; The ORB Interface
 
+(defvar corba-orb nil
+  "The default orb")
+
+
 ;;;###autoload
-(defun corba-orb-init (&optional args orbid)
-  nil)
+(defun corba-init (&optional args)
+  (unless corba-orb
+    (setq corba-orb
+          `(orb :initial-references
+                (("NameService" ,corba-name-service)
+                 ("InterfaceRepository" ,corba-interface-repository)))))
+  (corba-process-orb-args corba-orb args)
+  corba-orb)
+
+(defun corba-process-orb-args (orb args)
+  (while args
+    (let ((arg (pop args)))
+      (when (string-match "\\`-ORBInitRef *" arg)
+        (let ((value (substring arg (match-end 0))))
+          (when (equal value "") 
+            (setq value (pop args)))
+          (if (string-match "\\([^= ]*\\) *= *\\(.+\\)" value)
+              (let ((name (match-string 1 value))
+                    (ref  (match-string 2 value)))
+                (corba-set-initial-reference orb name value))))))))
+
+
+(defun corba-set-initial-reference (orb name value)
+  (let ((ir-list (plist-get (cdr orb) :initial-references)))
+    (let ((pair (assoc name ir-list)))
+      (cond (pair
+             (setcdr pair value))
+            (t
+             (setq pair (cons name value))
+             (plist-put (cdr orb) :initial-references
+                        (cons pair ir-list)))))))
+
 
 ;; Interface:
-(defun corba-orb-resolve-initial-references (orb name)
-  (cond
-   ((string-equal name "NameService")
-    (corba-file-to-object corba-name-service))
-   ((string-equal name "InterfaceRepository")
-    (corba-file-to-object corba-interface-repository))))
+(defun corba-resolve-initial-references (orb name)
+  (let* ((ir-list (plist-get (cdr orb) :initial-references))
+         (entry (assoc name ir-list)))
+    (when entry
+      (let ((object (cddr entry)))
+        (unless object
+          (setq object (corba-string-to-object orb (cadr entry)))
+          (setcdr (cdr entry) object))
+        object))))
+
 
 
 ;; Interface:
-(defun corba-orb-string-to-object (orb str)
+(defun corba-string-to-object (orb str)
   (if (string-match "\\(\\w+\\):" str)
       (let ((method (match-string 1 str))
             (start (match-end 0)))
         (cond ((string-equal method "IOR")
                (corba-decode-iorstring orb str start))
               ((string-equal method "file")
-               (corba-decode-file-ior orb str start))
+               (corba-decode-url-ior orb str start))
               ((string-equal method "corbaloc")
                (corba-decode-corbaloc orb str start))
               ((string-equal method "http")
-               (corba-decode-http-ior orb str start))
+               (corba-decode-url-ior orb str start))
               (t
                (error "Unsupported method in IOR URL: %S" method))))
       (error "Illegal string object")))
+
+
+(defun corba-decode-url-ior (orb str start)
+  (require 'url)
+  (let ((url-buffer (url-retrieve-synchronously str))
+        (reference nil))
+  (with-current-buffer url-buffer
+    (search-forward "\n\n" nil t)
+    (when (or (looking-at "IOR:\\([0-9A-Za-z]+\\)")
+              (looking-at "corba.*:.*"))
+      (setq reference (corba-string-to-object orb (match-string 0)))))
+  (kill-buffer url-buffer)
+  reference))
 
 
 (defun corba-decode-iorstring (orb str start)
@@ -821,7 +888,7 @@ Result is the list of the values of the out parameters."
                  (corba-hex-to-int (aref str (1+ pos)))))))
     (corba-in-encapsulation buf #'corba-read-ior)))
 
-;; (corba-orb-string-to-object nil "IOR:01000000010000000000000000000000")
+;; (corba-string-to-object nil "IOR:01000000010000000000000000000000")
 
 
 (defun corba-decode-corbaloc (orb str start)
@@ -835,7 +902,7 @@ Result is the list of the values of the out parameters."
             (addrs (mapcar #'corba-parse-obj-addr
                            (split-string addr-list ","))))
         (cond ((eq (car addrs) :rir)
-               (corba-orb-resolve-initial-references orb key))
+               (corba-resolve-initial-references orb key))
               (t
                (let ((addr (car addrs)))
                  ;;FIXME: what about other profiles? version?
@@ -871,7 +938,7 @@ Result is the list of the values of the out parameters."
 
 
 ;; Interface:
-(defun corba-orb-object-to-string (orb object)
+(defun corba-object-to-string (orb object)
   (let ((str (corba-make-encapsulation #'corba-write-ior object)))
     (concat "IOR:"
 	    (upcase (loop for c across str
@@ -879,7 +946,7 @@ Result is the list of the values of the out parameters."
 
 
 (defun corba-file-to-object (file)
-  (corba-orb-string-to-object
+  (corba-string-to-object
    nil					; No orb-struct yet
    (if (string-match "IOR:" file)
        file				; Looks like the IOR itself
@@ -940,15 +1007,15 @@ Result is the list of the values of the out parameters."
    :id "IDL:omg.org/CORBA/Object:1.0"
    :operations (list
                 (make-corba-opdef :name "_is_a"
-                            :inparams '(("id" . tk_string))
-                            :outparams '(("" . tk_boolean))
+                            :inparams '(tk_string)
+                            :outparams '(tk_boolean)
                             :raises '())
                 (make-corba-opdef :name "_interface"
-                            :outparams '(("" . tk_objref)))
+                            :outparams '(tk_objref))
                 (make-corba-opdef :name "_get_interface"
-                            :outparams '(("" . tk_objref)))
+                            :outparams '( tk_objref))
                 (make-corba-opdef :name "_non_existent"
-                            :outparams '(("" . tk_boolean))))))
+                            :outparams '(tk_boolean)))))
 
 (defun corba-find-opdef (interface operation)
   "Find in INTERFACE the OPERATION and return the opdef struct."
@@ -963,6 +1030,9 @@ Result is the list of the values of the out parameters."
 ;;;; Internal Interface Repository
 
 (defvar corba-local-repository
+  (make-hash-table :test #'equal))
+
+(defvar corba-local-typecode-repository
   (make-hash-table :test #'equal))
 
 
@@ -980,11 +1050,17 @@ Result is the list of the values of the out parameters."
       (setf (gethash id corba-local-repository)
 	    (corba-interface-from-id id))))
 
+(defun corba-has-typecode-p (id)
+  (gethash id corba-local-typecode-repository))
 
 (defun corba-get-typecode (id)
-  (or (gethash id corba-local-repository)
-      (setf (gethash id corba-local-repository)
+  (or (gethash id corba-local-typecode-repository)
+      (setf (gethash id corba-local-typecode-repository)
 	    (corba-typecode-from-def id))))
+
+(defun corba-add-typecode-with-id (id typecode &optional no-force)
+  (or (if no-force (gethash id corba-local-typecode-repository))
+      (setf (gethash id corba-local-typecode-repository) typecode)))
 
 
 (defun corba-get-objects-interface (object)
@@ -992,7 +1068,7 @@ Result is the list of the values of the out parameters."
       (let ((idef
              (car (corba-invoke object "_get_interface"))))
         (if idef
-            (corba-interface-from-def-cached nil idef)))
+            (corba-interface-from-def-cached idef)))
     (corba-system-exception
      (message "_get_interface: %s" exc)
      nil)
@@ -1002,57 +1078,7 @@ Result is the list of the values of the out parameters."
      nil)))
 
 
-;; Interface:
-(defun corba-object-create-request (object op args)
-  "Create a request object for an operation on a CORBA object.
-OBJECT is the CORBA object, OP the name of the operation and arguments
-ARGS. The arguments are the in-paramenters of the operation in the
-IDL-defition.
-    This functions requires that the interface for the
-object is known to the ORB, either from an explicit definition of the
-interface or from an Interface Repository.
-    OP can also be a list (INTERFACE-ID OP-NAME) to use the operation
-definition from a specific interface inditified by INTERFACE-ID,
-the interface repository ID."
-  (let* ((interface-id (if (consp op) (first op) (corba-object-id object)))
-         (operation (if (consp op) (second op) op))
-	 (opdef
-          (or (corba-find-opdef corba-object-interface operation)
-              (corba-find-opdef (or (corba-has-interface-p interface-id)
-                                    (corba-get-objects-interface object)
-                                    (corba-get-interface interface-id))
-                                operation))))
-    (unless opdef
-      (error "Undefined operation %s for interface %s"
-             op interface-id))
-    (unless (= (length args)
-	       (length (corba-opdef-inparams opdef)))
-      (error "Wrong number of arguments to operation"))
-    (make-corba-request :object object
-                        :arguments args
-                        :operation opdef)))
 
-
-;; Interface:
-(defun corba-invoke (obj op &rest args)
-  "Invoke operation OP on object OBJ with arguments ARGS.
-Returns the list of result and out parameters."
-  (corba-request-invoke
-   (corba-object-create-request obj op args)))
-
-;; Interface:
-(defun corba-funcall (op obj &rest args)
-  "Invoke operation OP on object OBJ with arguments ARGS.
-Returns the list of result and out parameters."
-  (corba-request-invoke
-   (corba-object-create-request obj op args)))
-
-(defun corba-locate (obj)
-  "Send a Locate Request for the object OBJ.
-The result is status for response, 1 - ?, 3 - ?."
-  (let ((req (make-corba-request :object obj
-                                 :operation 'locate)))
-    (corba-request-invoke req)))
 
 
 (defun corba-simplify-type (typecode)
@@ -1062,8 +1088,9 @@ The result is status for response, 1 - ?, 3 - ?."
   ;; have a repository id as key. The simplified typecode will be the
   ;; version stored in the internal repository.
   (macrolet ((mush (id def)
-               `(or (gethash ,id corba-local-repository)
-                 (setf (gethash ,id corba-local-repository) ,def)))
+               `(or (corba-has-typecode-p ,id)
+                    (progn (corba-add-typecode-with-id ,id typecode)
+                           ,def)))
              (simplifyf (var)
                `(progn (setf ,var (corba-simplify-type ,var))
                  typecode))
@@ -1151,147 +1178,64 @@ of fields can be defaulted (numbers and strings)."
 
 (corba-add-interface corba-object-interface)
 
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/IRObject:1.0"
-  :inherit (list corba-object-interface)
-  :operations (list
-	       (make-corba-opdef :name "_get_def_kind"
-                                 :outparams '(("" . tk_ulong))))))
 
-
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/Contained:1.0"
-  :inherit (mapcar #'corba-get-interface '("IDL:omg.org/CORBA/IRObject:1.0"))
-  :operations
-  (list
-   (make-corba-opdef :name "_get_id"
-                     :outparams '(("" . tk_string)))
-   (make-corba-opdef :name "_get_name"
-                     :outparams '(("" . tk_string)))
-   (make-corba-opdef :name "_get_defined_in"
-                     :outparams '(("" . tk_objref)))
-   (make-corba-opdef :name "describe"
-                     :outparams `(("" .
-                                   ,(corba-struct-typecode
-                                     "IDL:omg.org/CORBA/Contained/Description:1.0"
-                                     "Description"
-                                     [(kind tk_ulong) (value tk_any)])))))))
-
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/Container:1.0"
-  :inherit (mapcar #'corba-get-interface '("IDL:omg.org/CORBA/IRObject:1.0"))
-  :operations
-  (list
-   (make-corba-opdef :name "lookup"
-                     :inparams '(("search_name" . tk_string))
-                     :outparams '(("" . tk_objref)))
-   (make-corba-opdef :name "contents"
-                     :inparams '(("limit_type" . tk_ulong)
-                                 ("exclude_inherit" . tk_boolean))
-                     :outparams '(("" sequence tk_objref)))
-   (make-corba-opdef :name "lookup_name"
-                     :inparams '(("search_name" . tk_string)
-                                 ("levels_to_search" . tk_long)
-                                 ("limit_type" . tk_ulong)
-                                 ("exclude_inherit" . tk_boolean))
-                     :outparams '(("" . (sequence tk_objref)))))))
-
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/IDLType:1.0"
-  :inherit (mapcar #'corba-get-interface '("IDL:omg.org/CORBA/IRObject:1.0"))
-  :operations (list
-	       (make-corba-opdef :name "_get_type"
-                                 :outparams '(("" . tk_TypeCode))))))
-
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/Repository:1.0"
-  :inherit (mapcar #'corba-get-interface '("IDL:omg.org/CORBA/Container:1.0"))
-  :operations (list
-	       (make-corba-opdef :name "lookup_id"
-                                 :inparams '(("search_id" . tk_string))
-                                 :outparams '(("" . tk_objref))))))
-
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/OperationDef:1.0"
-  :inherit (mapcar #'corba-get-interface '("IDL:omg.org/CORBA/Contained:1.0"))
-  :operations
-  (list
-   (make-corba-opdef :name "_get_result"
-                     :outparams '(("" . tk_TypeCode)))
-   (make-corba-opdef
-    :name "_get_params"
-    :outparams `(("" sequence ,(corba-struct-typecode
-                                "IDL:omg.org/CORBA/ParameterDescription:1.0"
-                                "ParameterDescription"
-                                [(name tk_string )
-                                 (type tk_TypeCode)
-                                 (type-def tk_objref)
-                                 (mode tk_ulong)       ])))))))
-
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/InterfaceDef:1.0"
-  :inherit (mapcar #'corba-get-interface '("IDL:omg.org/CORBA/Container:1.0"
-                                           "IDL:omg.org/CORBA/Contained:1.0"
-                                           "IDL:omg.org/CORBA/IDLType:1.0"))
-  :operations
-  (list
-   (make-corba-opdef :name "_get_base_interfaces"
-                     :outparams '(("" . (sequence tk_objref))))
-   (make-corba-opdef :name "is_a"
-                     :inparams '(("interface_id" . tk_string))
-                     :outparams '(("" . tk_boolean))))))
-
-
-(corba-add-interface
- (make-corba-interface
-  :id "IDL:omg.org/CORBA/ExceptionDef:1.0"
-  :inherit (mapcar #'corba-get-interface '("IDL:omg.org/CORBA/Contained:1.0"
-                                           "IDL:omg.org/CORBA/IDLType:1.0"))
-  :operations
-  (list
-   (make-corba-opdef :name "_get_members"
-                     :outparams '(("" sequence
-                                   (anon-struct string tk_TypeCode tk_objref))))
-   (make-corba-opdef :name "_get_type"
-                     :outparams '(("" . tk_TypeCode))))))
 
 ;;;; Using real IR
 
 (defun corba-get-ir ()
   "Get an object reference to the Interface Repository"
-  (corba-orb-resolve-initial-references nil "InterfaceRepository"))
+  (corba-resolve-initial-references corba-orb "InterfaceRepository"))
+
+
+(defun corba-ir-lookup-id (id)
+  (let ((req (corba-create-request
+              (corba-get-ir) "lookup_id"
+              '(tk_string) '(tk_objref) nil
+              (list id))))
+    (or (car (corba-request-invoke req))
+        (error "InterfaceRepository does not know about %s" id))))
+
+
+(defun corba-get-attribute (object getter result-tc)
+  (car (corba-request-invoke
+        (corba-create-request object getter () (list result-tc) () ()))))
+
+
+(defun corba-opdef-from-attrdef (irdef)
+  (let* ((name (corba-get-attribute irdef "_get_name" 'tk_string))
+         (attr-mode-tc (corba-get-typecode "IDL:omg.org/CORBA/AttributeMode:1.0"))
+         (mode (corba-get-attribute irdef "_get_mode" attr-mode-tc))
+         (type (corba-simplify-type
+                (corba-get-attribute irdef "_get_type" 'tk_TypeCode))))
+    (cons (make-corba-opdef
+           :name (format "_get_%s" name)
+           :outparams (list type))
+          (if (eq mode 0)               ; :attr_normal
+              (list (make-corba-opdef
+                     :inparams (list type)
+                     :name (format "_set_%s" name)))))))
+
 
 (defun corba-opdef-from-ir (irdef)
   "Obtain a Operation Definition (corba-opdef) from the IRDEF.
 IRDEF can be an Operation Definition object or the interface repository
 id for the operation."
   (when (stringp irdef)
-    (setq irdef (car (corba-invoke (corba-get-ir) "lookup_id" irdef))))
-
-  (let ((name (car (corba-invoke irdef "_get_name")))
+    (setq irdef (corba-ir-lookup-id irdef)))
+  (let ((name   (corba-get-attribute irdef "_get_name" 'tk_string))
+        (result (corba-get-attribute irdef "_get_result" 'tk_TypeCode))
+        (parseq (corba-get-typecode "IDL:omg.org/CORBA/ParDescriptionSeq:1.0"))
 	(inpars nil)
-	(outpars nil)
-	(result (car (corba-invoke irdef "_get_result"))))
-
+	(outpars nil))
     (unless (eq 'tk_void (corba-typecode-kind result))
-      (push (cons "" (corba-simplify-type result)) outpars))
-
-    (loop for pardesc in (car (corba-invoke irdef "_get_params"))
-	  for mydesc = (cons (corba-struct-get pardesc 'name)
-			     (corba-simplify-type (corba-struct-get pardesc 'type)))
+      (push  (corba-simplify-type result) outpars))
+    (loop for pardesc in (corba-get-attribute irdef "_get_params" parseq)
+	  for tc   = (corba-simplify-type (corba-struct-get pardesc 'type))
 	  for mode = (corba-struct-get pardesc 'mode)
-	  do (cond ((memq mode '(0 2))
-		    (push mydesc inpars)))
-	  do (cond ((memq mode '(1 2))
-		    (push mydesc outpars))))
-
+	  do (when (memq mode '(0 2))
+               (push tc inpars))
+	  do (when (memq mode '(1 2))
+               (push tc outpars)))
     (make-corba-opdef
      :name name
      :inparams (nreverse inpars)
@@ -1299,52 +1243,118 @@ id for the operation."
 
 
 (defun corba-interface-from-id (id)
-  (let ((def (car (corba-invoke (corba-get-ir) "lookup_id" id))))
+  (let ((def (car (corba-ir-lookup-id id))))
     (when (corba-object-is-nil def)
       (error "InterfaceRepository do not know about %s" id))
-    (corba-interface-from-def id def)))
+    (corba-interface-from-def def id)))
 
-(defun corba-interface-from-def-cached (id def)
-  (unless id
-    (setq id (car (corba-invoke def "_get_id"))))
-  (or (corba-has-interface-p id)
-      (corba-add-interface (corba-interface-from-def id def))))
 
-(defun corba-interface-from-def (id def)
-  (unless id
-    (setq id (car (corba-invoke def "_get_id"))))
+(defun corba-interface-from-def-cached (def)
+  (let ((id (corba-get-attribute def "_get_id" 'tk_string)))
+    (or (corba-has-interface-p id)
+        (corba-add-interface (corba-interface-from-def def id)))))
+
+
+(defun corba-ir-contents (container limit-type exclude-inherit)
+  (let* ((cseq (corba-get-typecode "IDL:omg.org/CORBA/ContainedSeq:1.0"))
+         (req (corba-create-request
+               container "contents"
+               '(tk_long tk_boolean) (list cseq) ()
+               (list limit-type exclude-inherit))))
+    (car (corba-request-invoke req))))
+
+
+(defun corba-interface-from-def (def id)
   (let ((mess "Getting interface %s %s")
         (progress ""))
     (message mess id progress)
-    (make-corba-interface
-     :id id
-     :inherit (or (mapcar #'(lambda (idef)
-                              (corba-interface-from-def-cached nil idef))
-                          (car (corba-invoke def "_get_base_interfaces")))
-                  (list corba-object-interface))
-     :operations (mapcar (lambda (o)
-                           (prog1 (corba-opdef-from-ir o)
-                             (setq progress (concat progress "."))
-                             (message mess id progress)))
-                         (car (corba-invoke def "contents" 7 t))))))
-
-(defun corba-enter-interface-def (def)
-  (let ((id (car (corba-invoke def "_get_id"))))
-    (unless (corba-has-interface-p id)
-      (corba-add-interface (corba-interface-from-def id def)))))
+    (let ((idseq (corba-get-typecode "IDL:omg.org/CORBA/InterfaceDefSeq:1.0")))
+      (make-corba-interface
+       :id id
+       :inherit
+       (or (mapcar #'(lambda (idef)
+                       (corba-interface-from-def-cached idef))
+                   (corba-get-attribute def "_get_base_interfaces" idseq))
+           (list corba-object-interface))
+       :operations
+       (nconc (apply 'append
+                     (mapcar 'corba-opdef-from-attrdef
+                             (corba-ir-contents def 2 t)))
+              (mapcar 'corba-opdef-from-ir
+                      (corba-ir-contents def 7 t)))))))
 
 
 (defun corba-typecode-from-def (def)
   (when (stringp def)
     (let ((id def))
       (message "Getting type %s" id)
-      (setq def (car (corba-invoke (corba-get-ir) "lookup_id" id)))
+      (setq def (corba-ir-lookup-id id))
       (when (corba-object-is-nil def)
 	(error "InterfaceRepository do not know about %s" id))))
-  (let ((typecode
-         (car (corba-invoke def
-                            '("IDL:omg.org/CORBA/IDLType:1.0" "_get_type")))))
-    (corba-simplify-type typecode)))
+  (corba-simplify-type 
+   (corba-get-attribute def "_get_type" 'tk_TypeCode) ))
+
+;;;; Easy DII - corba-funcall
+
+;; Interface:
+(defun corba-object-create-request (object op args)
+  "Create a request object for an operation on a CORBA object.
+OBJECT is the CORBA object, OP the name of the operation and arguments
+ARGS. The arguments are the in-paramenters of the operation in the
+IDL-defition.
+    This functions requires that the interface for the
+object is known to the ORB, either from an explicit definition of the
+interface or from an Interface Repository.
+    OP can also be a list (INTERFACE-ID OP-NAME) to use the operation
+definition from a specific interface inditified by INTERFACE-ID,
+the interface repository ID."
+  (let* ((interface-id (if (consp op) (first op) (corba-object-id object)))
+         (operation (if (consp op) (second op) op))
+	 (opdef
+          (or (corba-find-opdef corba-object-interface operation)
+              (corba-find-opdef (or (corba-has-interface-p interface-id)
+                                    (corba-get-objects-interface object)
+                                    (corba-get-interface interface-id))
+                                operation))))
+    (unless opdef
+      (error "Undefined operation %s for interface %s"
+             op interface-id))
+    (unless (= (length args)
+	       (length (corba-opdef-inparams opdef)))
+      (error "Wrong number of arguments to operation"))
+    (corba-create-request object
+                          (corba-opdef-name opdef)
+                          (corba-opdef-inparams opdef)
+                          (corba-opdef-outparams opdef)
+                          (corba-opdef-raises opdef)
+                          args)))
+
+
+;; Interface:
+(defun corba-invoke (obj op &rest args)
+  "Invoke operation OP on object OBJ with arguments ARGS.
+Returns the list of result and out parameters."
+  (corba-request-invoke
+   (corba-object-create-request obj op args)))
+
+
+;; Interface:
+(defun corba-funcall (op obj &rest args)
+  "Invoke operation OP on object OBJ with arguments ARGS.
+Returns the list of result and out parameters."
+  (corba-request-invoke
+   (corba-object-create-request obj op args)))
+
+
+(defun corba-locate (obj)
+  "Send a Locate Request for the object OBJ.
+The result is status for response, 1 - ?, 3 - ?."
+  (let ((req (make-corba-request :object obj
+                                 :operation 'locate)))
+    (corba-request-invoke req)))
+
+
+
 
 ;;;; Name Service Shortcuts
 
@@ -1363,8 +1373,7 @@ id for the operation."
 
 (defun corba-get-ns ()
   (corba-object-narrow
-   (corba-orb-resolve-initial-references (corba-orb-init)
-                                         "NameService")
+   (corba-resolve-initial-references (corba-init) "NameService")
    corba-nsid))
 
 (defun corba-resolve (&rest names)
