@@ -1,56 +1,4 @@
-(require 'corba-defs)
-
-
-;;;; Testing NameService
-
-(corba-def-struct name-component
-		  "IDL:omg.org/CosNaming/NameComponent:1.0"
-		  ((id string)
-		   (kind string)))
-
-(corba-def-struct binding
-		  "IDL:omg.org/CosNaming/Binding:1.0"
-		  ((binding-name (sequence name-component))
-		   (binding-type tk_ulong)))
-
-
-(defun namingcontext.list (obj how-many)
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation  '("list"		;operation name
-			;; Arguments
-			(("how_many" tk_ulong))
-			;; Results
-			(("bl" (sequence binding))
-			 ("bi" (object BindingIterator))))
-	  :arguments (list how-many))))
-    (corba-request-invoke req)))
-
-
-(defun makereq-namingcontext.resolve (obj name)
-  (make-corba-request
-   :object obj
-   :operation '("resolve"
-		(("name" (sequence name-component)))
-		(("" object)))
-   :arguments (list name)))
-
-(defun namingcontext.resolve (obj name)
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation '("resolve"
-		       (("name" (sequence name-component)))
-		       (("" object)))
-	  :arguments (list name))))
-    (car (corba-request-invoke req)) ))
-
-
-(defvar default-name-service nil)
-
-(defun corba-struct-get (struct key)
-  (cdr (assq key struct)))
+;;;; TESTING
 
 (defun* ls (&key start avoid (recursive t))
   (unless start
