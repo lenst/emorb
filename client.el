@@ -5,10 +5,10 @@
 ;;;; Basic CORBA defs
 
 (defstruct corba-object
+  (id nil)
   (host nil)
   (port nil)
   (object-key nil)
-  (id nil)
   (profiles nil)
   (forward nil))
 
@@ -24,21 +24,21 @@
    ]
   "The symbols for the TCKind enum")
 
-(eval-when (compile load eval)
+(eval-when (load eval)
   (loop for i from 0 below (length TCKind)
 	do (setf (symbol-value (elt TCKind i)) i)))
 
-(put 'tk_fixed 'tk-params '(ushort short))
+(put 'tk_fixed 'tk-params '(tk_ushort tk_short))
 (put 'tk_objref 'tk-params '(complex string string))
 (put 'tk_struct 'tk-params '(complex string string
 				     (sequence (anon-struct string tk_TypeCode))))
 (put 'tk_union 'tk-params t)
 (put 'tk_enum 'tk-params t)
 (put 'tk_sequence 'tk-params '(complex tk_TypeCode tk_ulong))
-(put 'tk_string 'tk-params '(ulong))
-(put 'tk_wstring 'tk-params '(ulong))
+(put 'tk_string 'tk-params '(tk_ulong))
+(put 'tk_wstring 'tk-params '(tk_ulong))
 (put 'tk_array 'tk-params t)
-(put 'tk_alias 'tk-params '(complex string string tk_TypeCode))
+n(put 'tk_alias 'tk-params '(complex string string tk_TypeCode))
 (put 'tk_except 'tk-params t)
 
 (defstruct corba-type-code
@@ -51,8 +51,18 @@
 	as i from 0
 	if (not (get tk 'tk-params))
 	do (setf (elt res i) (make-corba-type-code :kind tk))
+	   (setf (get tk 'corba-typecode) (elt res i))
 	finally (return res)))
 
+(put 'string 'corba-typecode
+     (make-corba-type-code
+      :kind 'tk_string
+      :params '(0)))
+
+(put 'object 'corba-typecode
+     (make-corba-type-code
+      :kind 'tk_objref
+      :params '("CORBA::Object" "IDL:omg.org/CORBA/Object:1.0")))
 
 ;;;; Marshaling
 
@@ -89,38 +99,41 @@
   (cdr-ulong (length s))
   (loop for e in s do (funcall el-cdr e)))
 
-(defun cdr-guess (sexp)
-  (cond ((stringp sexp)
-	 (cdr-string sexp))
-	((numberp sexp)
-	 (cdr-ulong sexp))
-	((consp sexp)
-	 (cdr-sequence sexp (function cdr-guess)))
-	(t
-	 (error "Marshal %s" sexp))))
-
 
 (defun cdr-marshal (arg type)
-  (case (or (car-safe type) type)
-    ((octet byte char) (cdr-octet arg))
-    ((bool) (cdr-bool arg))
-    ((ushort) (cdr-ushort arg))
-    ((ulong long) (cdr-ulong arg))
-    ((string) (cdr-string arg))
-    ((osequence) (cdr-osequence arg))
-    ((object) (cdr-ior arg))
-    ((sequence)
-     (let ((_el_type_ (second type)))
-       (cdr-sequence arg (lambda (arg) (cdr-marshal arg _el_type_)))))
-    ((anon-struct)
-     (loop for type in (cdr type)
-	   for arg in arg
-	   collect (cdr-marshal arg type)))
-    (t
-     (let ((proc (get (or (car-safe type) type) 'corba-marshal)))
-       (if proc
-	   (apply proc arg (cdr-safe type))
-	 (error "MARSHAL: %s" type))))))
+  (when (symbolp type)
+    (setq type (or (get type 'corba-typecode) type)))
+  (let (kind params)
+    (cond ((vectorp type)
+	   (setq kind (corba-type-code-kind type)
+		 params (corba-type-code-params type)))
+	  ((consp type)
+	   (setq kind (car type)
+		 params (cdr type)))
+	  (t (setq kind type)))
+    (ecase kind
+      ((tk_octet byte tk_char) (cdr-octet arg))
+      ((tk_boolean bool) (cdr-bool arg))
+      ((tk_ushort ushort) (cdr-ushort arg))
+      ((tk_ulong ulong long) (cdr-ulong arg))
+      ((tk_string string) (cdr-string arg))
+      ((osequence) (cdr-osequence arg))
+      ((tk_object object) (cdr-ior arg))
+      ((sequence tk_sequence)
+       (let ((_el_type_ (first params)))
+	 (if (or (eq _el_type_ 'tk_octet)
+		 (and (vectorp _el_type_)
+		      (eq (corba-type-code-kind _el_type_) 'tk_octet)))
+	     (cdr-osequence arg)
+	   (cdr-sequence arg (lambda (arg) (cdr-marshal arg _el_type_))))))
+      ((tk_struct)
+       (loop for el in (third params)
+	     do (cdr-marshal (cdr (assq (first el) arg))
+			     (second el))))
+      ((anon-struct)
+       (loop for type in params
+	     for arg in arg
+	     collect (cdr-marshal arg type))))))
 
 
 ;;; UnMarshal
@@ -216,57 +229,53 @@
 				 :params (mapcar 'cdr-unmarshal params))))))
 
 
-(defun cdr-typecode-unmarsal-value (tc)
-  (let ((kind (corba-type-code-kind tc)))
-    (case kind
-      ((tk_sequence)
-       (let ((_ElType_
-	      (car (corba-type-code-params tc))))
-	 (cdr-read-sequence
-	  (lambda () (cdr-typecode-unmarsal-value _ElType_)))))
-      ((tk_struct)
-       (let* ((params (corba-type-code-params tc)))
-	 ;; FIXME: find struct code, and use that. Fallback:
-	 (mapcar (lambda (nt-pair)
-		   (cons (first nt-pair)
-			 (cdr-typecode-unmarsal-value (second nt-pair))))
-		 (third params))))
-      ((tk_alias)
-       (let* ((params (corba-type-code-params tc)))
-	 (cdr-typecode-unmarsal-value (third params))))
-      (t
-       (cdr-unmarshal kind)))))
-
-
 (defun cdr-read-any ()
   (let ((tc (cdr-read-typecode)))
     ;; FIXME: Should construct a specail ANY type
-    (cdr-typecode-unmarsal-value tc)))
-
-(put 'tk_any 'corba-unmarshal 'cdr-read-any)
+    (cdr-unmarshal tc)))
 
 (defun cdr-unmarshal (type)
-  (case (or (car-safe type) type)
-    ((char byte octet tk_char tk_octet) (cdr-read-octet))
-    ((bool tk_boolean) (cdr-read-bool))
-    ((ushort tk_ushort) (cdr-read-ushort))
-    ((ulong tk_ulong) (cdr-read-ulong))
-    ((string tk_string) (cdr-read-string))
-    ((sequence)
-     (if (eq (second type) 'octet)
-	 (cdr-read-osequence)
-       (cdr-read-sequence (lambda ()
-			    (cdr-unmarshal (second type))))))
-    ((object tk_objref) (cdr-read-ior))
-    ((anon-struct)
-     (loop for type in (cdr type)
-	   collect (cdr-unmarshal type)))
-    ((typecode tk_TypeCode) (cdr-read-typecode))
-    (t
-     (let ((proc (get (or (car-safe type) type) 'corba-unmarshal)))
-       (if proc
-	   (apply proc (cdr-safe type))
-	 (error "UNMARSHAL: %s" type))))))
+  (when (symbolp type)
+    (setq type (or (get type 'corba-typecode) type)))
+  (let (kind params)
+    (cond ((vectorp type)
+	   (setq kind (corba-type-code-kind type)
+		 params (corba-type-code-params type)))
+	  ((consp type)
+	   (setq kind (car type)
+		 params (cdr type)))
+	  (t (setq kind type)))
+    (ecase kind
+      ((char byte octet tk_char tk_octet) (cdr-read-octet))
+      ((bool tk_boolean) (cdr-read-bool))
+      ((ushort tk_ushort) (cdr-read-ushort))
+      ((ulong tk_ulong) (cdr-read-ulong))
+      ((string tk_string) (cdr-read-string))
+      ((tk_any) (cdr-read-any))
+      ((tk_sequence sequence)
+       (let ((_ElType_ (car params)))
+	 (if (or (eq _ElType_ 'tk_octet)
+		 (and (vectorp _ElType_)
+		      (eq (corba-type-code-kind _ElType_) 'tk_octet)))
+	     (cdr-read-osequence)
+	   (cdr-read-sequence (lambda () (cdr-unmarshal _ElType_))))))
+      ((tk_alias)
+       (cdr-typecode-unmarsal-value (third params)))
+      ((tk_struct)
+       (cons (first params)
+	     (mapcar (lambda (nt-pair)
+		       (cons (if (stringp (first nt-pair))
+				 (intern (first nt-pair))
+			       (first nt-pair))
+			     (cdr-unmarshal (second nt-pair))))
+		     (third params))))
+      ((object tk_objref) (cdr-read-ior))
+      ((anon-struct)
+       (loop for type in params
+	     collect (cdr-unmarshal type)))
+      ((tk_TypeCode) (cdr-read-typecode)))))
+
+
 
 
 ;;;; GIOP / IIOP stuff
@@ -356,15 +365,22 @@
 (defun get-connection (host port)
   (let* ((hp (assoc host *iiop-connections*))
 	 (pp (assq port (cdr hp))))
-    (unless pp
+    (unless (and pp (eq (process-status (cdr pp)) 'open))
       (unless hp
 	(push (setq hp (cons host nil)) *iiop-connections*))
-      (let ((buffer (generate-new-buffer "*IIOP*")))
+      (let ((buffer (if pp (process-buffer (cdr pp))
+		      (generate-new-buffer "*IIOP*"))))
 	(save-excursion
 	  (set-buffer buffer)
-	  (setq buffer-undo-list nil))
-	(setq pp (cons port (open-network-stream "iiop" buffer host port))))
-      (push pp (cdr hp)))
+	  (setq buffer-undo-list nil)
+	  (setq *message-size* nil)
+	  (erase-buffer))
+	(let ((proc (open-network-stream "iiop" buffer host port)))
+	  ;; FIXME: should I check if open
+	  (if pp
+	      (setcdr pp proc)
+	    (setq pp (cons port proc))
+	    (push pp (cdr hp))))))
     (cdr pp)))
 
 (defun get-clients ()
@@ -451,7 +467,7 @@
       (ecase (cdr-read-giop-header)
 	((1)				; Reply
 	 (cond
-	  ((< (point-max) *message-size*)
+	  ((<= (point-max) (+ 12 *message-size*))
 	   (setq *message-size* nil))
 	  (t
 	   (let* ((service-context (cdr-read-service-context))
@@ -518,8 +534,8 @@
 	 (make-corba-request
 	  :object obj
 	  :operation '("_is_a"
-		       (("id" string))
-		       (("" bool)))
+		       (("id" tk_string))
+		       (("" tk_boolean)))
 	  :arguments (list id))))
     (car (corba-request-invoke req))))
 
@@ -551,197 +567,3 @@
 			(corba-hex-to-int (aref str (1+ i))))))
        (cdr-read-ior))
     (error "Illegal string object")))
-
-;;;; Testing NameService
-
-(defstruct cosnaming-name-component
-  (id "")
-  (kind ""))
-
-(put 'cosnaming-name-component
-     'corba-unmarshal (lambda ()
-			(make-cosnaming-name-component
-			 :id (cdr-read-string)
-			 :kind (cdr-read-string))))
-
-(put 'cosnaming-name-component
-     'corba-marshal (lambda (nc)
-		      (cdr-string (cosnaming-name-component-id nc))
-		      (cdr-string (cosnaming-name-component-kind nc))))
-
-
-(defun namingcontext.list (obj how-many)
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation  '("list"		;operation name
-			;; Arguments
-			(("how_many" ulong))
-			;; Results
-			(("bl" (sequence
-				(anon-struct (sequence cosnaming-name-component)
-					     ulong)))
-			 ("bi" (object BindingIterator))))
-	  :arguments (list how-many))))
-    (corba-request-invoke req)))
-
-
-
-
-(defun makereq-namingcontext.resolve (obj name)
-  (make-corba-request
-   :object obj
-   :operation '("resolve"
-		(("name" (sequence cosnaming-name-component)))
-		(("" object)))
-   :arguments (list name)))
-
-(defun namingcontext.resolve (obj name)
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation '("resolve"
-		       (("name" (sequence cosnaming-name-component)))
-		       (("" object)))
-	  :arguments (list name))))
-    (car (corba-request-invoke req)) ))
-
-
-(defvar obj.ns nil)
-
-(defun ls (&optional start indent avoid)
-  (unless start
-    (setq start obj.ns))
-  (unless indent
-    (setq indent 0))
-  (unless (member (corba-object-object-key start) avoid)
-    (push (corba-object-object-key start) avoid)
-    (let ((result (namingcontext.list start 1000))
-	  (reqs nil))
-      (loop for binding in (first result)
-	    if (= (second binding) 1)
-	    do (let ((r (makereq-namingcontext.resolve start (first binding))))
-		 (corba-request-send r)
-		 (accept-process-output)
-		 (push r reqs)))
-      (setq reqs (nreverse reqs))
-      (loop for binding in (first result)
-	    do (princ (format "%s%s: %s\n"
-			      (make-string indent ? )
-			      (mapconcat (lambda (nc)
-					   (cosnaming-name-component-id nc))
-					 (first binding)
-					 "/")
-			      (second binding)))
-	    (sit-for 0)
-	    (when (= (second binding) 1)
-	      (ls (let ((r (pop reqs)))
-		    (corba-request-get-response r)
-		    (car (corba-request-result r)))
-		  (1+ indent)
-		  avoid))))))
-
-
-;;;; IR-test
-
-(defun repository.lookup-id (obj search-id)
-  (unless (object.is-a obj "IDL:omg.org/CORBA/Repository:1.0")
-    (error "Not a repository"))
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation '("lookup_id"
-		       (("search_id" string))
-		       (("" object)))
-	  :arguments (list search-id))))
-    (car (corba-request-invoke req)) ))
-
-(defun container.lookup (obj name)
-  (unless (object.is-a obj "IDL:omg.org/CORBA/Container:1.0")
-    (error "Not a container"))
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation '("lookup"
-		       (("scoped_name" string))
-		       (("" object)))
-	  :arguments (list name))))
-    (car (corba-request-invoke req)) ))
-
-
-(defun container.contents (obj limit-type exclude-inherited)
-  (unless (object.is-a obj "IDL:omg.org/CORBA/Container:1.0")
-    (error "Not a container"))
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation '("contents"
-		       (("limit_type" ulong) ; enum realy
-			("exclute_inherited" bool))
-		       (("" (sequence object))))
-	  :arguments (list limit-type exclude-inherited))))
-    (car (corba-request-invoke req)) ))
-
-
-(defun corba-check-type (obj id)
-  (unless (object.is-a obj id)
-    (error "Not a %s" id)))
-
-(defstruct contained.description
-  kind value)
-
-(put 'contained.description
-     'corba-unmarshal
-     (lambda ()
-       (make-contained.description
-	:kind (cdr-read-ulong)
-	:value (cdr-read-any))))
-
-(defun contained.describe (obj)
-  (corba-check-type obj "IDL:omg.org/CORBA/Contained:1.0")
-  (let ((req
-	 (make-corba-request
-	  :object obj
-	  :operation '("describe"
-		       ()
-		       (("" contained.description)))
-	  :arguments nil)))
-    (car (corba-request-invoke req)) ))
-
-
-
-(defun test-mass ()
-  (loop for r
-	in (loop for i to 1000 collect
-		 (let ((req
-			(make-corba-request
-			 :object ir
-			 :operation '("lookup"
-				      (("scoped_name" string))
-				      (("" object)))
-			 :arguments (list
-				     "IDL:omg.org/CosNaming/NamingContext:1.0"))))
-		   (corba-request-send req)
-		   (message "Send %d" (corba-request-req-id req))
-		   req))
-	do (progn
-	     (corba-request-get-response r)
-	     (message "Recv %d" (corba-request-req-id r)))))
-
-;;;; Test UrlDB
-
-(defvar urldb-database nil)
-
-(defun setup-urldb ()
-  (setq urldb-database
-	(corba-file-to-object "/triton:/tmp/udb")))
-
-(defun urldb.get-category (db name)
-  (let ((req
-	 (make-corba-request
-	  :object db
-	  :operation '("get_category"
-		       (("name" string))
-		       (("" object)))
-	  :arguments (list name))))
-    (car (corba-request-invoke req)) ))
