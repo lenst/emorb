@@ -165,7 +165,7 @@
       (corba-invoke start "list" 0)
     (unless (corba-object-is-nil i)
       (prog1 (loop for (f b) = (corba-invoke i "next_one")
-                   while (not f)
+                   while f
                    collect (corba-struct-get
                             (elt (corba-struct-get b 'binding-name) 0)
                             'id))
