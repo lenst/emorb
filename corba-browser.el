@@ -16,15 +16,17 @@
 
 (defun corba-browser-expand-ns (orb path)
   (let ((context
-         (corba-orb-resolve-initial-references orb "NameService")))
+         (corba-object-narrow
+          (corba-orb-resolve-initial-references orb "NameService")
+          "IDL:omg.org/CosNaming/NamingContext:1.0")))
     (when path
       (let ((name
              (mapcar
               (lambda (n)
-                (destructuring-bind (id kind)
+                (destructuring-bind (id &optional kind)
                     (split-string n "\t")
                   (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
-                                'id id 'kind kind)))
+                                'id id 'kind (or kind ""))))
               path)))
         (setq context (car (corba-invoke context "resolve" name)))))
     (if (and context

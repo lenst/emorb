@@ -3,8 +3,8 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.23 2001/03/06 21:02:51 lenst Exp $
-;; Keywords: 
+;; Version: $Id: corba.el,v 1.24 2001/12/18 12:36:35 lenst Exp $
+;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
 ;;; This program is free software; you can redistribute it and/or modify
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2001/03/06 21:02:51 $|$Revision: 1.23 $||
+;; $Date: 2001/12/18 12:36:35 $|$Revision: 1.24 $||
 
 ;;; Commentary:
 
@@ -99,7 +99,7 @@ If nil, the actual value will be returned.")
 ;;;; Structures
 
 ;; Interface: corba-object-id ?
-(defstruct corba-object 
+(defstruct corba-object
   (id nil)
   (host nil)
   (port nil)
@@ -790,9 +790,9 @@ Result is the list of the values of the out parameters."
 
 ;; Interface:
 (defun corba-orb-string-to-object (orb str)
-  (if (string-match "IOR:" str)
+  (if (string-match "IOR:\\([a-fA-F0-9]+\\)" str)
       (corba-in-encapsulation
-       (loop for i from 4 below (length str) by 2
+       (loop for i from (match-beginning 1) below (match-end 1) by 2
 	     concat (char-to-string
 		     (+ (* 16 (corba-hex-to-int (aref str i)))
 			(corba-hex-to-int (aref str (1+ i))))))
@@ -823,15 +823,19 @@ Result is the list of the values of the out parameters."
 
 ;;;; The Object Interface
 
+(defvar corba-trust-object-irid t)
+
 ;; Interface:
 (defun corba-object-is-a (obj id)
-  (car (corba-request-invoke 
-        (make-corba-request
-         :object obj
-         :operation (make-corba-opdef :name "_is_a"
-                                      :inparams '(("id" . tk_string))
-                                      :outparams '(("" . tk_boolean)))
-         :arguments (list id)))))
+  (or (if corba-trust-object-irid
+          (equal id (corba-object-id obj)))
+      (car (corba-request-invoke
+            (make-corba-request
+             :object obj
+             :operation (make-corba-opdef :name "_is_a"
+                                          :inparams '(("id" . tk_string))
+                                          :outparams '(("" . tk_boolean)))
+             :arguments (list id))))))
 
 ;; Interface:
 (defun corba-object-is-nil (obj)
@@ -844,7 +848,8 @@ Result is the list of the values of the out parameters."
 (defun corba-object-narrow (obj id)
   (unless (corba-object-is-a obj id)
     (error "Cannot narrow to '%s', object %s" id obj))
-  (setf (corba-object-id obj) id))
+  (setf (corba-object-id obj) id)
+  obj)
 
 (defun corba-object-auto-narrow (obj)
   (let ((interface
@@ -961,6 +966,12 @@ Returns the list of result and out parameters."
   (corba-request-invoke
    (corba-object-create-request obj op args)))
 
+;; Interface:
+(defun corba-funcall (op obj &rest args)
+  "Invoke operation OP on object OBJ with arguments ARGS.
+Returns the list of result and out parameters."
+  (corba-request-invoke
+   (corba-object-create-request obj op args)))
 
 (defun corba-locate (obj)
   "Send a Locate Request for the object OBJ.
@@ -1190,7 +1201,7 @@ id for the operation."
   (when (stringp irdef)
     (setq irdef (car (corba-invoke (corba-get-ir) "lookup_id" irdef))))
 
-  (let ((name (car (corba-invoke irdef "_get_name"))) 
+  (let ((name (car (corba-invoke irdef "_get_name")))
 	(inpars nil)
 	(outpars nil)
 	(result (car (corba-invoke irdef "_get_result"))))
@@ -1263,16 +1274,29 @@ id for the operation."
 
 ;;;; Name Service Shortcuts
 
+(defconst corba-nsid "IDL:omg.org/CosNaming/NamingContext:1.0")
+(defconst corba-ncid "IDL:omg.org/CosNaming/NameComponent:1.0")
+
+(defun corba-ns-name (&rest names)
+  (mapcar (lambda (name)
+            (let ((id name)
+                  (kind ""))
+              (when (string-match "\\." name)
+                (setq id (substring name 0 (match-beginning 0)))
+                (setq kind (substring name (match-end 0))))
+              (corba-struct corba-ncid 'id id 'kind kind)))
+          names))
+
+(defun corba-get-ns ()
+  (corba-object-narrow
+   (corba-orb-resolve-initial-references (corba-orb-init)
+                                         "NameService")
+   corba-nsid))
+
 (defun corba-resolve (&rest names)
-  (let ((nsid "IDL:omg.org/CosNaming/NamingContext:1.0")
-	(n (mapcar (lambda (id)
-                     (corba-struct "IDL:omg.org/CosNaming/NameComponent:1.0"
-                                   'id id 'kind ""))
-                   names))
-        (ns (corba-orb-resolve-initial-references (corba-orb-init)
-                                                  "NameService")))
-    (assert (corba-object-is-a ns nsid))
-    (first (corba-invoke ns (list nsid "resolve") n))))
+  (let ((n  (apply 'corba-ns-name names))
+        (ns (corba-get-ns)))
+    (first (corba-funcall "resolve" ns n))))
 
 
 ;;;; ORBit hacks
