@@ -157,8 +157,12 @@
                  (corba-invoke ns "bind"
                                (name (cons n k))
                                b)
-               (corba-invoke ns "bind_new_context"
-                               (name (cons n k)))))
+               (condition-case cc
+                   (corba-invoke ns "bind_new_context"
+                                 (name (cons n k)))
+                 (corba-user-exception
+                  (message "Exception on bind (%s): %s" n cc)
+                  (sit-for 1)))))
     ns))
 
 (defun example2 ()
