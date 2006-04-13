@@ -9,56 +9,80 @@
     (unless object
       (setq object (corba-get-ir))
       (widget-put widget :ir-object object))
-    (mapcar
-       (lambda (contained)
-         (let ((name (car (corba-funcall "_get_name" contained))))
-           `(tree-widget :tag ,name
-                         :dynargs corba-browser-expand-ir
-                         :orb ,orb
-                         :ir-object ,contained )))
-       (condition-case err
-           (car (corba-funcall "contents" object 1 t))
-         (error 
-          (unless (string-match "Undefined operation" (cadr err))
-            (signal (car err) (cdr err))))))))
+    (let ((kind (corba-get object "def_kind")))
+      (message "kind=%S" kind)
+      (cons
+       `(tree-widget :tag ,(format "Kind: %s" kind))
+       (case kind
+         ((:dk_Constant)
+          `((tree-widget
+             :tag ,(format "value: %s"
+                           (corba-any-value (corba-get object "value"))))))
+         ((:dk_Struct :dk_Exception)
+          (mapcar (lambda (member)
+                    `(tree-widget :tag ,(corba-get member 'name)))
+                  (corba-get object "members")))
+         (t
+          (mapcar
+           (lambda (contained)
+             (let ((name (corba-get contained "name")))
+               `(tree-widget :tag ,name
+                             :dynargs corba-browser-expand-ir
+                             :orb ,orb
+                             :ir-object ,contained )))
+           (condition-case err
+               (car (corba-funcall "contents" object 1 t))
+             (error 
+              (unless (string-match "Undefined operation" (cadr err))
+                (warn "Error getting contents: %s" err))
+              nil)))))))))
 
 
+
+(defun corba-browser-get-context (widget)
+  (let* ((orb (widget-get widget :orb))
+         (name (widget-get widget :ns-name))
+         (context
+          (if name
+              (car (corba-funcall "resolve"
+                                  (widget-get (widget-get widget :parent)
+                                              :ns-context)
+                                  name))
+              (corba-object-narrow
+               (corba-resolve-initial-references orb "NameService")
+               "IDL:omg.org/CosNaming/NamingContext:1.0"))))
+    (widget-put widget :ns-context context)
+    context))
 
 
 (defun corba-browser-expand-ns (widget)
-  (let* ((orb (widget-get widget :orb))
-         (name (widget-get widget :ns-name))
-         (context (widget-get widget :ns-context)))
-    (cond (name
-           (let ((p-context (widget-get (widget-get widget :parent)
-                                        :ns-context)))
-             (setq context (car (corba-funcall "resolve" p-context name)))))
-          (t
-           (setq context
-                 (corba-object-narrow
-                  (corba-resolve-initial-references orb "NameService")
-                  "IDL:omg.org/CosNaming/NamingContext:1.0"))))
-    (widget-put widget :ns-context context)
-    (if (and context
-             (corba-object-is-a context
-                                "IDL:omg.org/CosNaming/NamingContext:1.0"))
-        (let  ((result (corba-funcall "list" context 100)))
-          (when (second result)
-            (corba-funcall "destroy" (second result)))
-          (mapcar
-           (lambda (binding)
-             (let* ((name (corba-struct-get binding 'binding-name))
-                    (type (corba-struct-get binding 'binding-type))
-                    (id (corba-struct-get (first name) 'id))
-                    (kind (corba-struct-get (first name) 'kind)))
-               (if (= type 0)
-                   `(item ,(format "%s.%s" id kind))
-                 `(tree-widget
-                   :tag ,(format "%s.%s" id kind)
-                   :ns-name ,name :orb ,orb
-                   :dynargs corba-browser-expand-ns
-                   :has-children t ))))
-           (first result))))))
+  (condition-case err
+      (let* ((orb (widget-get widget :orb))
+             (context (corba-browser-get-context widget)))
+        (if (and context
+                 (corba-object-is-a context
+                                    "IDL:omg.org/CosNaming/NamingContext:1.0"))
+            (let  ((result (corba-funcall "list" context 100)))
+              (when (second result)
+                (corba-funcall "destroy" (second result)))
+              (mapcar
+               (lambda (binding)
+                 (let* ((name (corba-get binding 'binding-name))
+                        (type (corba-get binding 'binding-type))
+                        (id   (corba-get (first name) 'id))
+                        (kind (corba-get (first name) 'kind)))
+                   (if (eql type :nobject)
+                       `(item ,(format "%s.%s" id kind))
+                       `(tree-widget
+                         :tag ,(format "%s.%s" id kind)
+                         :ns-name ,name :orb ,orb
+                         :dynargs corba-browser-expand-ns
+                         :has-children t ))))
+               (first result)))))
+    (error ;;corba-system-exception
+     (warn "Can't expand node: %s" err)
+     nil)))
+  
 
 
 

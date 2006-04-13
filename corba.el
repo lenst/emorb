@@ -3,7 +3,7 @@
 ;; Copyright (C) 1998 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
-;; Version: $Id: corba.el,v 1.32 2005/02/26 22:36:09 lenst Exp $
+;; Version: $Id: corba.el,v 1.33 2006/04/13 11:07:23 lenst Exp $
 ;; Keywords:
 ;; Created: 1998-01-25 11:03:10
 
@@ -26,7 +26,7 @@
 ;; LCD Archive Entry:
 ;; corba|Lennart Staflin|lenst@lysator.liu.se|
 ;; A Client Side CORBA Implementation for Emacs|
-;; $Date: 2005/02/26 22:36:09 $|$Revision: 1.32 $||
+;; $Date: 2006/04/13 11:07:23 $|$Revision: 1.33 $||
 
 ;;; Commentary:
 
@@ -82,7 +82,7 @@ or the IOR.")
   "*Octet sequence used for the principal field in the GIOP message.
 Used by ORBit for its cookie.")
 
-(defvar corba-explicit-any nil
+(defvar corba-explicit-any t
   "*If non-nil, an explicit any struct will be returned for any result.
 If nil, the actual value will be returned.")
 
@@ -109,10 +109,6 @@ If nil, the actual value will be returned.")
   (profiles nil)
   (forward nil))
 
-;; Interface:
-(defstruct corba-any
-  (typecode nil)
-  (value nil))
 
 (defstruct (corba-opdef (:type list))
   name
@@ -205,6 +201,31 @@ If nil, the actual value will be returned.")
 
 (defconst corba-tc-object
   (make-corba-typecode :tk_objref '("IDL:omg.org/CORBA/Object:1.0" "Object")))
+
+
+;;;; CORBA::Any
+
+(defun corba-any (typecode value)
+  (when (stringp typecode)
+    (setq typecode (corba-get-typecode typecode))
+    (assert typecode))
+  `(any ,typecode ,value))
+
+(defsubst corba-any-p (x)
+  (and (consp x)
+       (eql (car x) 'any)))
+
+(defun corba-any-typecode (any)
+  (cond ((corba-any-p any) (cadr any))
+        ((integerp any) (if (< 0 any) :tk_long :tk_ulong))
+        ((stringp any) :tk_string)
+        ((corba-object-p any) corba-tc-object)
+        ((corba-struct-p any) (corba-struct-typecode (car any)))
+        (t (error "Can't determine typecode for: %S" any))))
+
+(defun corba-any-value (any)
+  (cond ((corba-any-p any) (caddr any))
+        (t any)))
 
 
 ;;;; Misc utilities
@@ -335,15 +356,10 @@ If nil, the actual value will be returned.")
                             (list elem 0))))))
 
 (defun corba-marshal-any (arg)
-  (let ((type-code
-         (if (corba-any-p arg)
-             (prog1 (corba-any-typecode arg)
-               (setq arg (corba-any-value arg)))
-           (corba-typecode-of arg))))
-    (if nil
-        type-code
-      (corba-marshal type-code :tk_TypeCode)
-      (corba-marshal arg type-code))))
+  (let ((type-code (corba-any-typecode arg)))
+    (corba-marshal type-code :tk_TypeCode)
+    (corba-marshal (corba-any-value arg) type-code)))
+
 
 (defun corba-write-enum (arg symbols)
   (if (numberp arg)
@@ -482,9 +498,7 @@ If nil, the actual value will be returned.")
 (defun corba-read-any ()
   (let ((tc (corba-read-typecode)))
     (if corba-explicit-any
-        (make-corba-any
-         :typecode tc
-         :value (corba-unmarshal tc))
+        (corba-any tc (corba-unmarshal tc))
       (corba-unmarshal tc))))
 
 (defun corba-unmarshal (type)
@@ -1072,8 +1086,7 @@ Result is the list of the values of the out parameters."
 
 (defun corba-get-interface (id)
   (or (gethash id corba-local-repository)
-      (setf (gethash id corba-local-repository)
-	    (corba-interface-from-id id))))
+      (puthash id (corba-interface-from-id id) corba-local-repository)))
 
 (defun corba-has-typecode-p (id)
   (gethash id corba-local-typecode-repository))
@@ -1103,18 +1116,18 @@ Result is the list of the values of the out parameters."
      nil)))
 
 
-(defun corba-intern-type (typecode)
+(defun corba-intern-type (typecode &optional force)
   ;; Make typecodes with repository ID be stored in the internal
   ;; typecode repository in a single instance. Usually used for
   ;; typecodes gotten from the Interface Repository.
   (let ((params (corba-typecode-params typecode)))
     (macrolet ((mush (&optional def)
-                 `(or (corba-has-typecode-p (first params))
+                 `(or (and (not force) (corba-has-typecode-p (first params)))
                       (progn (corba-add-typecode-with-id (first params)
                                                          typecode)
                              ,(or def 'typecode))))
                (simplifyf (var)
-                 `(progn (setf ,var (corba-intern-type ,var))
+                 `(progn (setf ,var (corba-intern-type ,var force))
                          typecode))
                (simplifyv (vec fun)
                  `(progn (loop for el in ,vec do (simplifyf (,fun el)))
@@ -1193,11 +1206,75 @@ of fields can be defaulted (numbers and strings)."
     ((:tk_string) "")
     ((:tk_sequence) nil)
     ((:tk_objref) (make-corba-object))))
+
+
+;;;; GET/PUT operators
+
+(defun corba-tcref (tc key)
+  (unless (consp tc)
+    (error "Bad typecode slot: %S, %S" key tc))
+  (ecase key
+    ((:kind) tc)
+    ((:id :length :fixed_digits)
+     (cdr tc))
+    ((:name :fixed_scale)
+     (cddr tc))
+    ((:content_type)
+     (ecase (car tc)
+       ((:tk_sequence :tk_array :tk_value_box) (cdr tc))
+       ((:tk_alias) (cdddr tc))))))
+
+
+(defun corba-get (object key)
+  (cond ((stringp key)
+         ;; attribute access
+         (car (corba-funcall (concat "_get_" key) object)))
+        ((consp object)
+         (let ((type (car object)))
+           (cond ((stringp type)
+                  (corba-struct-get object key))
+                 ((eq type 'any)
+                  (ecase key
+                    (:any-value (corba-any-value object))
+                    (:any-typecode (corba-any-typecode object))))
+                 ((keywordp type)
+                  (car (corba-tcref object key)))
+                 (t
+                  (error "Bad object type: %S" object)))))
+        ((corba-object-p object)
+         (error "NIY"))
+        (t (error "Bad object type: %S" object))))
+
+
+(defun corba-put (object key value)
+  (cond ((stringp key)
+         (corba-funcall (concat "_set_" key) object value))
+        ((consp object)
+         (let ((type (car object)))
+           (cond ((stringp type)
+                  (let ((cell (assoc key (cdr object))))
+                    (if cell
+                        (setcdr cell value)
+                        (setcdr object (cons (cons key value)
+                                             (cdr object))))))
+                 ((eq type 'any)
+                  (ecase key
+                    (:any-typecode (setcar (cdr object) value))
+                    (:any-value    (setcar (cddr object) value))))
+                 ((keywordp type)
+                  (setcar (corba-tcref object key) value))
+                 (t
+                  (error "Bad object type: %S" object)))))
+        ((corba-object-p object)
+         (error "NIY"))
+        (t (error "Bad object type: %S" object))))
+
+
 
 ;;;; IR -- initial repository contents
 
 (corba-add-interface corba-object-interface)
-
+(corba-intern-type corba-tc-object t)
 
 
 ;;;; Using real IR

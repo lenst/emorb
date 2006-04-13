@@ -31,3 +31,14 @@
   )
 
 
+(setq any (corba-any corba-tc-string "hello"))
+(assert (equal (corba-any-value any) "hello"))
+(assert (equal (corba-get any :any-value) "hello"))
+(corba-put any :any-value "fisk")
+(assert (equal (corba-get any :any-value) "fisk"))
+(assert (equal (corba-get corba-tc-string :length) 0))
+(assert (equal (corba-get corba-tc-object :name) "Object"))
+
+(setq tc (make-corba-typecode :tk_sequence '(:tk_null 0)))
+(corba-put tc :content_type corba-tc-string)
+(assert (equal tc `(:tk_sequence ,corba-tc-string 0)))
