@@ -8,8 +8,15 @@
         i)))
 
 
+(defun key-pos (key type)
+  (posq key
+        (if (symbolp type)
+            (get type 'key-vector)
+            type)))
+
+
 (defun corba-get1 (obj key)
-  (let ((pos (posq key (aref obj 0))))
+  (let ((pos (key-pos key (aref obj 0))))
     (unless pos (error "Key '%s' not in object" key))
     (aref obj pos)))
 
@@ -32,7 +39,7 @@
   (let ((type (aref obj 0)))
     (if (eq type (car cache))
         (aref obj (cdr cache))
-        (let ((pos (posq key type)))
+        (let ((pos (key-pos key type)))
           (unless pos (error "Key '%s' not in object" key))
           (setcar cache type)
           (setcdr cache pos)
@@ -47,3 +54,7 @@
 
 (defun foo (s)
   (corba-get s :foo))
+
+
+(put :tk_objref 'key-vector [:kind :id :name])
+(defconst tc_objref [:tk_objref "IDL:omg.org/CORBA/Object:1.0" "Object"])
