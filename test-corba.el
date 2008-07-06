@@ -1,6 +1,6 @@
 
 (setq tc-e1
-      (corba-intern-type '(tk_enum "IDL:my-enum:1.0" "my-enum"
+      (corba-intern-type '(:tk_enum "IDL:my-enum:1.0" "my-enum"
                            ("foo" "fie" "fumm"))))
 
 (assert (equal (corba-enum-symbols tc-e1) '(:foo :fie :fumm)))
@@ -11,6 +11,11 @@
   (goto-char (point-min))
   (assert (= (corba-read-ulong) 1))
   (assert (eq (corba-unmarshal tc-e1) :fumm)))
+
+(corba-in-work-buffer
+  (corba-write-typecode tc-e1)
+  (goto-char (point-min))
+  (corba-read-typecode))
 
 
 (defvar corba-services-running nil)
