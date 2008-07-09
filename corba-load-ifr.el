@@ -1,9 +1,8 @@
+(provide 'corba-load-ifr)
 
 (corba-load-repository
  '(repository nil
  (module "::CORBA"
-  (interface "::CORBA::TypeCode" nil
-   (:tk_objref "IDL:omg.org/CORBA/TypeCode:1.0" "TypeCode"))
   (type "::CORBA::Identifier"
    (:tk_alias "IDL:omg.org/CORBA/Identifier:1.0" "Identifier" (:tk_string 0)))
   (type "::CORBA::ScopedName"
@@ -19,8 +18,6 @@
      "dk_Array" "dk_Repository" "dk_Wstring" "dk_Fixed" "dk_Value"
      "dk_ValueBox" "dk_ValueMember" "dk_Native" "dk_AbstractInterface"
      "dk_LocalInterface")))
-  nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil
-  nil nil nil nil nil nil nil
   (interface "::CORBA::IRObject" nil
    (:tk_objref "IDL:omg.org/CORBA/IRObject:1.0" "IRObject")
    (attribute "def_kind" :attr_readonly "IDL:omg.org/CORBA/DefinitionKind:1.0")
@@ -503,8 +500,6 @@
    (attribute "digits" :attr_normal (:tk_ushort))
    (attribute "scale" :attr_normal (:tk_short)))
   (type "::CORBA::PrimitiveKind" "IDL:omg.org/CORBA/PrimitiveKind:1.0") nil nil
-  nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil
-  nil
   (struct "::CORBA::ModuleDescription"
    (:tk_struct "IDL:omg.org/CORBA/ModuleDescription:1.0" "ModuleDescription"
     (("name" "IDL:omg.org/CORBA/Identifier:1.0")
@@ -538,9 +533,8 @@
    (attribute "mode" :attr_normal "IDL:omg.org/CORBA/AttributeMode:1.0"))
   (struct "::CORBA::AttributeDescription"
    "IDL:omg.org/CORBA/AttributeDescription:1.0")
-  (type "::CORBA::OperationMode" "IDL:omg.org/CORBA/OperationMode:1.0") nil nil
-  (type "::CORBA::ParameterMode" "IDL:omg.org/CORBA/ParameterMode:1.0") nil nil
-  nil
+  (type "::CORBA::OperationMode" "IDL:omg.org/CORBA/OperationMode:1.0")
+  (type "::CORBA::ParameterMode" "IDL:omg.org/CORBA/ParameterMode:1.0")
   (struct "::CORBA::ParameterDescription"
    "IDL:omg.org/CORBA/ParameterDescription:1.0")
   (type "::CORBA::ParDescriptionSeq" "IDL:omg.org/CORBA/ParDescriptionSeq:1.0")

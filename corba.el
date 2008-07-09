@@ -365,7 +365,7 @@ If nil, the actual value will be returned.")
 (corba-define-typecode :tk_ushort nil corba-write-short corba-read-ushort)
 (corba-define-typecode :tk_long nil corba-write-ulong corba-read-long)
 (corba-define-typecode :tk_ulong nil corba-write-ulong corba-read-ulong)
-(corba-define-typecode :tk_TypeCode nil
+(corba-define-typecode :tk_typecode nil
                        corba-write-typecode corba-read-typecode)
 (corba-define-typecode :tk_struct
                        (complex string string
@@ -1243,7 +1243,7 @@ E.g, \"::CosNaming::NamingContext\"."
            (unless version (setq version "1.0"))
            (when (equal host "") (setq host "localhost"))
            (if port
-               (setq port (parse-integer port))
+               (setq port (string-to-number port))
                (setq port 2809))
            (list version host port)))
         (t
@@ -1350,6 +1350,8 @@ E.g, \"::CosNaming::NamingContext\"."
 ;; Interface:
 (defsubst corba-struct-get (struct key)
   "Get field with KEY from the STRUCT."
+  (when (stringp key)
+    (setq key (corba-lispy-name key)))
   (cdr (assq key struct)))
 
 ;; Interface:
@@ -1414,10 +1416,7 @@ of fields can be defaulted (numbers and strings)."
 
 
 (defun corba-get (object key)
-  (cond ((stringp key)
-         ;; attribute access
-         (car (corba-funcall (concat "_get_" key) object)))
-        ((consp object)
+  (cond ((consp object)
          (let ((type (car object)))
            (cond ((stringp type)
                   (corba-struct-get object key))
@@ -1426,11 +1425,14 @@ of fields can be defaulted (numbers and strings)."
                     (:any-value (corba-any-value object))
                     (:any-typecode (corba-any-typecode object))))
                  ((keywordp type)
-                  (car (corba-tcref object key)))
+                  (corba-tcref object key))
                  (t
                   (error "Bad object type: %S" object)))))
         ((corba-object-p object)
-         (error "NIY"))
+         (cond ((stringp key)
+                (car (corba-funcall (concat "_get_" key) object)))
+               (t
+                (error "NIY"))))
         (t (error "Bad object type: %S" object))))
 
 
@@ -1456,6 +1458,16 @@ of fields can be defaulted (numbers and strings)."
         ((corba-object-p object)
          (error "NIY"))
         (t (error "Bad object type: %S" object))))
+
+
+
+;;;; corba-get-ir
+
+(defun corba-get-ir ()
+  (require 'corba-load-ifr)
+  (corba-object-narrow
+   (corba-resolve-initial-references (corba-init) "InterfaceRepository")
+   "::CORBA::Repository"))
 
 
 
@@ -1533,12 +1545,14 @@ The result is status for response, 1 - ?, 3 - ?."
 
 
 (defun corba-get-ns ()
+  (require 'corba-load-naming)
   (corba-object-narrow
    (corba-resolve-initial-references (corba-init) "NameService")
    "::CosNaming::NamingContext"))
 
 
 (defun corba-resolve (name)
+  (require 'corba-load-naming)
   (car (corba-funcall "::CosNaming::NamingContextExt::resolve_str"
                       (corba-get-ns)              
                       name)))

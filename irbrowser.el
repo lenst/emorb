@@ -9,13 +9,13 @@
          (name (car node)))
     (setq name (substring name 0 (- (length name) 2)))
     (unless (equal name "")
-      (setq container (car (corba-invoke ir "lookup" name) )))
+      (setq container (car (corba-funcall "lookup" ir name) )))
     (setq names
           (if container
               (map 'list
                    (lambda (contained)
                      (car (corba-invoke contained "_get_name")))
-                   (car (corba-invoke container "contents" 1 nil)))))
+                   (car (corba-funcall "contents" container :dk_all nil)))))
     names))
 
 (defvar ir-browser-mode-map

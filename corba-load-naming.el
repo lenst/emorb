@@ -1,3 +1,4 @@
+(provide 'corba-load-naming)
 
 (corba-load-repository
  '(repository nil
