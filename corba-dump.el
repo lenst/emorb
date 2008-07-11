@@ -43,7 +43,9 @@
             (let ((id (cadr tc)))
               (if (gethash id *tc-dumped*)
                   id
-                  (corba-uncanonize-typecode tc)))
+                  (let ((repr (corba-uncanonize-typecode tc)))
+                    (puthash id repr *tc-dumped*)
+                    repr)))
             (corba-uncanonize-typecode tc)))))
 
 

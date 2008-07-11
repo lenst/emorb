@@ -44,9 +44,6 @@
 ;; The typeid in an IOR is optional, handle that case by asking the remote
 ;; object for the interface.
 
-;; Separate the internal repository in interface repository and type
-;; repository. In case corba-get-typecode is ever called with an interface id.
-
 ;; Server side:
 ;; probably need a helper program that handles the
 ;; sockets and multiplexes messages.
@@ -155,6 +152,16 @@ If nil, the actual value will be returned.")
           (setq i (1+ i) list (cdr list))))
     result))
 
+(defun corba-vposq (x vector)
+  (let ((i 0) (len (length vector)) (result nil))
+    (while (< i len)
+      (if (eq x (aref vector i))
+          (setq result i i len )
+          (setq i (1+ i))))
+    result))
+
+(defun corba-make-keyword (string)
+  (intern (concat ":" string)))
 
 
 ;;;; Work buffer managing
@@ -329,7 +336,7 @@ If nil, the actual value will be returned.")
   [
    :tk_null :tk_void :tk_short :tk_long :tk_ushort :tk_ulong
    :tk_float :tk_double :tk_boolean :tk_char
-   :tk_octet :tk_any :tk_TypeCode :tk_Principal :tk_objref
+   :tk_octet :tk_any :tk_typecode :tk_principal :tk_objref
    :tk_struct :tk_union :tk_enum :tk_string
    :tk_sequence :tk_array :tk_alias :tk_except
    :tk_longlong :tk_ulonglong :tk_longdouble
@@ -391,7 +398,8 @@ If nil, the actual value will be returned.")
                        (corba-marshal-alias) (corba-unmarshal-alias))
 (corba-define-typecode :tk_except
                        (complex string string
-                                (sequence (string typecode))))
+                                (sequence (string typecode)))
+                       (corba-marshal-except) (corba-unmarshal-except))
 (corba-define-typecode :tk_value
                        (complex string string short typecode
                                 (sequence (string typecode short))))
@@ -422,19 +430,6 @@ If nil, the actual value will be returned.")
          (loop for c across-ref string
                if (eq c ?_) do (setf c ?-))
 	 (intern string))))
-
-(defun corba-make-keyword (string)
-  (intern (concat ":" string)))
-
-(defun corba-enum-symbols (tc)
-  (assert (eql (corba-typecode-kind tc) :tk_enum))
-  (let* ((params (corba-typecode-params tc))
-         (member-slot (cddr params))
-         (symbols (cdr member-slot)))
-    (unless symbols
-      (setq symbols (mapcar 'corba-make-keyword (car member-slot)))
-      (setcdr member-slot symbols))
-    symbols))
 
 
 (defconst corba-tc-string
@@ -550,7 +545,7 @@ If nil, the actual value will be returned.")
 (defun corba-unmarshal (type)
   (let ((kind (corba-typecode-kind type)))
     (let ((unmarshal (get kind 'corba-unmarshal)))
-      (assert unmarshal)
+      (assert unmarshal nil "Can't unmarshal Type=%s" type)
       (if (consp unmarshal)
           (funcall (car unmarshal) type)
           (funcall unmarshal)))))
@@ -648,6 +643,17 @@ If nil, the actual value will be returned.")
 ;;;; CORBA::Enum
 
 
+(defun corba-enum-symbols (tc)
+  (assert (eql (corba-typecode-kind tc) :tk_enum))
+  (let* ((params (corba-typecode-params tc))
+         (member-slot (cddr params))
+         (symbols (cdr member-slot)))
+    (unless symbols
+      (setq symbols (mapcar 'corba-make-keyword (car member-slot)))
+      (setcdr member-slot symbols))
+    symbols))
+
+
 (defun corba-marshal-enum (arg type)
   (if (numberp arg)
       (corba-write-ulong arg)
@@ -728,28 +734,101 @@ If nil, the actual value will be returned.")
 
 ;;;; CORBA::Struct
 
+;;; Typecode: (:tk_struct id name ((member-name type)*))
+;;; Representation: [[name key1 key2..] value1 value2..]
+;;;   where keyi keyword form of member-name i
+
+
+(defun corba-struct-p (sexp)
+  (and (vectorp sexp)
+       (vectorp (aref sexp 0))
+       (= (length sexp) (length (aref sexp 0)))))
+
+
+(defvar corba-struct-symbols-cache
+  (make-hash-table))
+
+
+(defun corba-struct-symbols (tc)
+  ;; => ["name" :field1 :field2 ...]
+  (assert (memq (corba-typecode-kind tc) '(:tk_struct :tk_except)))
+  (let ((syms (gethash tc corba-struct-symbols-cache)))
+    (unless syms
+      (setq syms      
+            (apply 'vector
+                   (cons (nth 2 tc)
+                         (mapcar (lambda (m) (corba-make-keyword (car m)))
+                                 (nth 3 tc)))))
+      (puthash tc syms corba-struct-symbols-cache))
+    syms))
+
 
 (defun corba-marshal-struct (struct struct-type)
-  (let ((params (corba-typecode-params struct-type)))
-    (mapc (lambda (el)
-            (corba-marshal (cdr (assq (corba-lispy-name (first el)) struct))
-                           (second el)))
-          (third params))))
+  ;; struct = [keys v1 v2..]
+  ;; struct-type = (:tk_struct id name ((member-name type)*))
+  (let ((members (nth 3 struct-type))
+        (i 1))
+    (dolist (m members)
+      (corba-marshal (aref struct i) (cadr m))
+      (setq i (1+ i)))))
+
+(defalias 'corba-marshal-except #'corba-marshal-struct)
+
 
 (defun corba-unmarshal-struct (type)
-  (let ((params (corba-typecode-params type)))
-    (cons (first params)
-          (mapcar (lambda (nt-pair)
-                    (cons (corba-lispy-name (first nt-pair))
-                          (corba-unmarshal (second nt-pair))))
-                  (third params)))))
+  ;; type = (:tk_struct id name ((member-name type)*))
+  ;; result: [keys v1 v2..]
+  (let* ((members (nth 3 type))
+         (result (make-vector (1+ (length members)) nil))
+         (i 1))
+    (aset result 0 (corba-struct-symbols type))
+    (dolist (m members)
+      (aset result i (corba-unmarshal (cadr m)))
+      (setq i (1+ i)))
+    result))
+
+(defalias 'corba-unmarshal-except #'corba-unmarshal-struct)
+
+
+(defun corba-repoid-p (id)
+  (and (stringp id) (eq ?I (aref id 0))))
+(defun corba-aname-p (id)
+  (and (stringp id) (eq ?: (aref id 0))))
+
+(defun corba-lookup-type (name)
+  (cond ((corba-repoid-p name) (corba-typecode name))
+        ((corba-aname-p name) (corba-lookup name))
+        (t (error "Invalid type name: %a" name))))
+
+(defun corba-new-struct (tc fields)
+  (let ((syms (corba-struct-symbols tc)))
+    (let ((result (make-vector (length syms) nil)))
+      (aset result 0 syms)
+      (while fields
+        (let ((key (pop fields))
+              (val (pop fields)))
+          (let ((pos (corba-vposq key syms)))
+            (or pos (error "Invalid struct key: %s, %s" key syms))
+            (aset result pos val))))
+      result)))
+
+
+(defun corba-new (type &rest fields)
+  (cond ((stringp type)
+         (let ((tc (corba-lookup-type type)))
+           (assert (consp tc))          ; should be tc
+           (ecase (car tc)
+             (:tk_struct (corba-new-struct tc fields))
+             (:tk_union  (debug)))))))
+
+
 
 
 ;;;; CORBA::Any
 
 (defun corba-any (typecode value)
   (when (stringp typecode)
-    (setq typecode (corba-get-typecode typecode))
+    (setq typecode (corba-typecode typecode))
     (assert typecode))
   `(any ,typecode ,value))
 
@@ -997,7 +1076,7 @@ the server that no response is excpected."
     ((1)				; User Exception
      (let* ((id (corba-read-string)))
        (signal 'corba-user-exception
-               (cons id (corba-unmarshal (corba-get-typecode id))))))
+               (cons id (corba-unmarshal (corba-typecode id))))))
     ((2)				; System Exception
      (let* ((id (corba-read-string))
 	    (minor (corba-read-ulong))
@@ -1296,11 +1375,6 @@ E.g, \"::CosNaming::NamingContext\"."
            (zerop (length (corba-object-profiles obj))))))
 
 
-(defun corba-repoid-p (id)
-  (and (stringp id) (eq ?I (aref id 0))))
-(defun corba-aname-p (id)
-  (and (stringp id) (eq ?: (aref id 0))))
-
 (defun corba-require-repoid (str)
   (when (corba-aname-p str)
     (let ((o (corba-lookup str)))
@@ -1347,64 +1421,19 @@ E.g, \"::CosNaming::NamingContext\"."
 ;;;; CORBA Structure support
 
 
-;; Interface:
-(defsubst corba-struct-get (struct key)
-  "Get field with KEY from the STRUCT."
-  (when (stringp key)
-    (setq key (corba-lispy-name key)))
-  (cdr (assq key struct)))
 
-;; Interface:
-(defun corba-struct (id &rest nv-pairs)
-  "Make a CORBA structure of type ID.
-NV-PAIRS is a list field names and field values.
-If ID is nil, then all fields must be supplied. Otherwise some types
-of fields can be defaulted (numbers and strings)."
-  (cond
-   ((null id)
-    (cons "" (loop for nv on nv-pairs by #'cddr collect
-                   (cons (first nv) (second nv)))))
-   (t
-    (let ((tc (corba-typecode id)))
-      (destructuring-bind (id name fields)
-          (corba-typecode-params tc)
-        (cons id
-              (mapcar (lambda (nv)
-                        (let* ((fname (corba-lispy-name (first nv)))
-                               (val (getf nv-pairs fname nv)))
-                          (cons fname
-                                (if (eq val nv)
-                                    (corba-default-from-type (second nv))
-                                  val))))
-                      fields)))))))
 
-(defun corba-struct-p (sexp)
-  (and (consp sexp)
-       (stringp (car sexp))
-       (loop for x = (cdr sexp) then (cdr x)
-             always (and (consp x)
-                         (and (consp (car x))
-                              (symbolp (caar x))))
-             until (null (cdr x)))))
 
-(defun corba-default-from-type (typecode)
-  ;; Return a suitable default value for the given TYPECODE.
-  ;; Some typecodes have no suitable value, these will result in an error.
-  (ecase (corba-typecode-kind typecode)
-    ((:tk_ushort :tk_short :tk_ulong :tk_long :tk_char :tk_octet :tk_enum) 0)
-    ((:tk_boolean) nil)
-    ((:tk_string) "")
-    ((:tk_sequence) nil)
-    ((:tk_objref) (make-corba-object))))
 
 
 ;;;; GET/PUT operators
 
 (defun corba-tcref (tc key)
+  ;; Return cons cell with car value for key..
   (unless (consp tc)
     (error "Bad typecode slot: %S, %S" key tc))
   (ecase key
-    ((:kind) (car tc))
+    ((:kind) tc)
     ((:id :length :fixed_digits)
      (cdr tc))
     ((:name :fixed_scale)
@@ -1418,14 +1447,12 @@ of fields can be defaulted (numbers and strings)."
 (defun corba-get (object key)
   (cond ((consp object)
          (let ((type (car object)))
-           (cond ((stringp type)
-                  (corba-struct-get object key))
-                 ((eq type 'any)
+           (cond ((eq type 'any)
                   (ecase key
                     (:any-value (corba-any-value object))
                     (:any-typecode (corba-any-typecode object))))
                  ((keywordp type)
-                  (corba-tcref object key))
+                  (car (corba-tcref object key)))
                  (t
                   (error "Bad object type: %S" object)))))
         ((corba-object-p object)
@@ -1433,6 +1460,10 @@ of fields can be defaulted (numbers and strings)."
                 (car (corba-funcall (concat "_get_" key) object)))
                (t
                 (error "NIY"))))
+        ((vectorp object)
+         (let ((pos (corba-vposq key (aref object 0))))
+           (if pos (aref object pos)
+               (error "Invalid key: %s, %s" key object))))
         (t (error "Bad object type: %S" object))))
 
 
@@ -1441,13 +1472,7 @@ of fields can be defaulted (numbers and strings)."
          (corba-funcall (concat "_set_" key) object value))
         ((consp object)
          (let ((type (car object)))
-           (cond ((stringp type)
-                  (let ((cell (assoc key (cdr object))))
-                    (if cell
-                        (setcdr cell value)
-                        (setcdr object (cons (cons key value)
-                                             (cdr object))))))
-                 ((eq type 'any)
+           (cond ((eq type 'any)
                   (ecase key
                     (:any-typecode (setcar (cdr object) value))
                     (:any-value    (setcar (cddr object) value))))
@@ -1457,6 +1482,11 @@ of fields can be defaulted (numbers and strings)."
                   (error "Bad object type: %S" object)))))
         ((corba-object-p object)
          (error "NIY"))
+        ((vectorp object)
+         (let ((pos (corba-vposq key (aref object 0))))
+           (if pos
+               (aset object pos value)
+               (error "Invalid key: %s, %s" key object))))
         (t (error "Bad object type: %S" object))))
 
 
@@ -1530,25 +1560,12 @@ The result is status for response, 1 - ?, 3 - ?."
 
 ;;;; Name Service Shortcuts
 
-(defconst corba-nsid "IDL:omg.org/CosNaming/NamingContext:1.0")
-(defconst corba-ncid "IDL:omg.org/CosNaming/NameComponent:1.0")
-
-(defun corba-ns-name (&rest names)
-  (mapcar (lambda (name)
-            (let ((id name)
-                  (kind ""))
-              (when (string-match "\\." name)
-                (setq id (substring name 0 (match-beginning 0)))
-                (setq kind (substring name (match-end 0))))
-              (corba-struct corba-ncid 'id id 'kind kind)))
-          names))
-
 
 (defun corba-get-ns ()
   (require 'corba-load-naming)
   (corba-object-narrow
    (corba-resolve-initial-references (corba-init) "NameService")
-   "::CosNaming::NamingContext"))
+   "::CosNaming::NamingContextExt"))
 
 
 (defun corba-resolve (name)

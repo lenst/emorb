@@ -1,5 +1,7 @@
 (require 'cl)
 (require 'corba)
+(require 'corba-load-naming)
+(require 'tree-widget)
 
 
 (defun corba-browser-expand-ir (widget)
@@ -12,15 +14,14 @@
     (let ((kind (corba-get object "def_kind")))
       (message "kind=%S" kind)
       (cons
-       `(tree-widget :tag ,(format "Kind: %s" kind))
+       `(item ,(format "Kind: %s" kind))
        (case kind
          ((:dk_Constant)
-          `((tree-widget
-             :tag ,(format "value: %s"
+          `((item ,(format "value: %s"
                            (corba-any-value (corba-get object "value"))))))
          ((:dk_Struct :dk_Exception)
           (mapcar (lambda (member)
-                    `(tree-widget :tag ,(corba-get member 'name)))
+                    `(item ,(corba-get member :name)))
                   (corba-get object "members")))
          (t
           (mapcar
@@ -67,10 +68,10 @@
                 (corba-funcall "destroy" (second result)))
               (mapcar
                (lambda (binding)
-                 (let* ((name (corba-get binding 'binding-name))
-                        (type (corba-get binding 'binding-type))
-                        (id   (corba-get (first name) 'id))
-                        (kind (corba-get (first name) 'kind)))
+                 (let* ((name (corba-get binding :binding_name))
+                        (type (corba-get binding :binding_type))
+                        (id   (corba-get (first name) :id))
+                        (kind (corba-get (first name) :kind)))
                    (if (eql type :nobject)
                        `(item ,(format "%s.%s" id kind))
                        `(tree-widget

@@ -11,8 +11,9 @@
  where default-index is index of member that is the default or -1 if no default
        member-label is of type discriminator-type
 
-(:tk_value id name)
-??
+(:tk_value id name ValueModifier concrete-base
+           ((member-name member-type visibility)*))
+
 (:tk_value_box id name content-type)
 
 (:tk_native id name)
