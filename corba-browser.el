@@ -32,7 +32,7 @@
                              :orb ,orb
                              :ir-object ,contained )))
            (condition-case err
-               (car (corba-funcall "contents" object 1 t))
+               (car (corba-funcall "contents" object :dk_all t))
              (error 
               (unless (string-match "Undefined operation" (cadr err))
                 (warn "Error getting contents: %s" err))
@@ -49,9 +49,7 @@
                                   (widget-get (widget-get widget :parent)
                                               :ns-context)
                                   name))
-              (corba-object-narrow
-               (corba-resolve-initial-references orb "NameService")
-               "IDL:omg.org/CosNaming/NamingContext:1.0"))))
+              (corba-get-ns))))
     (widget-put widget :ns-context context)
     context))
 
@@ -61,8 +59,8 @@
       (let* ((orb (widget-get widget :orb))
              (context (corba-browser-get-context widget)))
         (if (and context
-                 (corba-object-is-a context
-                                    "IDL:omg.org/CosNaming/NamingContext:1.0"))
+                 (corba-typep context
+                              "IDL:omg.org/CosNaming/NamingContext:1.0"))
             (let  ((result (corba-funcall "list" context 100)))
               (when (second result)
                 (corba-funcall "destroy" (second result)))

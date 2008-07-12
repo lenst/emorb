@@ -1,3 +1,7 @@
+2008-07-11  Lennart Staflin  <lenst@lysator.liu.se>
+
+	* corba.el (corba-narrow): new name was corba-object-narrow
+
 2002-01-31  Lennart Staflin  <lenst@lysator.liu.se>
 
 	* corba.el (corba-get-work-buffer): set buffer unibyte

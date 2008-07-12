@@ -98,7 +98,7 @@ If nil, the actual value will be returned.")
 
 ;;;; Structures
 
-;; Interface: corba-object-id ?
+
 (defstruct corba-object
   (id nil)
   (host nil)
@@ -432,6 +432,18 @@ If nil, the actual value will be returned.")
 	 (intern string))))
 
 
+(defconst corba-tc-void '(:tk_void))
+(defconst corba-tc-short '(:tk_short))
+(defconst corba-tc-long '(:tk_long))
+(defconst corba-tc-ushort '(:tk_ushort))
+(defconst corba-tc-ulong '(:tk_ulong))
+(defconst corba-tc-double '(:tk_double))
+(defconst corba-tc-boolean '(:tk_boolean))
+(defconst corba-tc-char '(:tk_char))
+(defconst corba-tc-octet '(:tk_octet))
+(defconst corba-tc-any '(:tk_any))
+(defconst corba-tc-typecode '(:tk_typecode))
+
 (defconst corba-tc-string
   (make-corba-typecode :tk_string '(0)))
 
@@ -499,6 +511,7 @@ If nil, the actual value will be returned.")
         tc)))
 
 
+;; Interface: corba-typecode
 (defun corba-typecode (typecode-or-id)
   "Returns canonical typecode"
   (cond ((stringp typecode-or-id)       ; id
@@ -813,37 +826,34 @@ If nil, the actual value will be returned.")
       result)))
 
 
-(defun corba-new (type &rest fields)
-  (cond ((stringp type)
-         (let ((tc (corba-lookup-type type)))
-           (assert (consp tc))          ; should be tc
-           (ecase (car tc)
-             (:tk_struct (corba-new-struct tc fields))
-             (:tk_union  (debug)))))))
-
 
 
 
 ;;;; CORBA::Any
 
+;; Interface: corba-any
 (defun corba-any (typecode value)
   (when (stringp typecode)
     (setq typecode (corba-typecode typecode))
     (assert typecode))
   `(any ,typecode ,value))
 
+
+;; Interface: corba-any-p
 (defsubst corba-any-p (x)
   (and (consp x)
        (eql (car x) 'any)))
 
+;; Interface: corba-any-typecode
 (defun corba-any-typecode (any)
   (cond ((corba-any-p any) (cadr any))
-        ((integerp any) (if (< 0 any) :tk_long :tk_ulong))
-        ((stringp any) :tk_string)
+        ((integerp any) (if (< 0 any) '(:tk_long) '(:tk_ulong)))
+        ((stringp any) corba-tc-string)
         ((corba-object-p any) corba-tc-object)
-        ((corba-struct-p any) (corba-struct-typecode (car any)))
+        ;;((corba-struct-p any) (corba-struct-typecode any))
         (t (error "Can't determine typecode for: %S" any))))
 
+;; Interface: corba-any-value
 (defun corba-any-value (any)
   (cond ((corba-any-p any) (caddr any))
         (t any)))
@@ -911,6 +921,24 @@ If nil, the actual value will be returned.")
    (setf (corba-object-port reference) (corba-read-ushort))
    (setf (corba-object-key reference) (corba-read-osequence)))
 
+(defun corba-write-iiop-profile-body (version host port key)
+  (let ((major 1)
+        (minor 0))
+    (when (and (stringp version))
+      (let ((vl (mapcar #'string-to-number (split-string version "\\."))))
+        (setq major (pop vl)
+              minor (pop vl))))
+    (corba-write-octet major)
+    (corba-write-octet minor)
+    (corba-write-string host)
+    (corba-write-short port)
+    (corba-write-osequence key)))
+
+
+(defun corba-make-iiop-profile (version host port key)
+  (cons 0                               ; iiop tag
+        (corba-make-encapsulation 'corba-write-iiop-profile-body
+                                  version host port key)))
 
 (defun corba-write-ior (objref)
   (corba-write-string (if objref (or (corba-object-id objref) "") ""))
@@ -980,7 +1008,6 @@ If nil, the actual value will be returned.")
 
 ;;;; Requests
 
-;; Interface: make-corba-request corba-request-result
 (defstruct corba-request
   (object nil)
   (operation nil)
@@ -1008,21 +1035,19 @@ If nil, the actual value will be returned.")
    :arguments arguments))
 
 
-
-;; Interface:
-(defun corba-request-send (req &optional flags)
+(defun corba-request-send (req &optional no-response)
   "Send the request to preform the remote CORBA operation defined by REQ.
-To get the response from the server use `corba-request-get-response'
-or `corba-get-next-respons'. The result from the operation will then
-be available with `corba-request-result'. Several requests can be sent
-before the getting the response. The flags argument is a list of
-symbols. The only recognized symbol is `no-response' that indicates to
-the server that no response is excpected."
+To get the response from the server use `corba-result' or
+`corba-next'. The result from the operation will be returned from
+`corba-result'. Several requests can be sent before the getting the
+response. 
+NO-RESPONSE true indicates to the server that no response
+is excpected."
   (let ((object (corba-request-object req)))
     (setq object (or (corba-object-forward object)
 		     object))
     (condition-case exc
-        (corba-request-send-to req object flags)
+        (corba-request-send-to req object no-response)
      (system-exception
        (setq object (corba-request-object req))
        (cond ((and (corba-object-forward object)
@@ -1030,11 +1055,11 @@ the server that no response is excpected."
 			   '("IDL:omg.org/CORBA/OBJECT_NOT_EXIST:1.0"
 			     "IDL:omg.org/CORBA/COMM_FAILURE:1.0")))
 	      (setf (corba-object-forward object) nil)
-	      (corba-request-send-to req object flags))
+	      (corba-request-send-to req object no-response))
 	     (t
 	      (signal (car exc) (cdr exc))))))))
 
-(defun corba-request-send-to (req object &optional flags)
+(defun corba-request-send-to (req object &optional no-response)
   (let* ((client (corba-get-connection
 		  (corba-object-host object)
 		  (corba-object-port object)))
@@ -1052,7 +1077,7 @@ the server that no response is excpected."
         (corba-write-giop-header 'request)
         (corba-write-ulong 0)			;context
         (corba-write-ulong (corba-request-req-id req))
-        (corba-write-octet (if (memq 'no-response flags) 0 1)) ;respons expected
+        (corba-write-octet (if no-response 0 1)) ;respons expected
         (corba-write-osequence (corba-object-key object))
         (corba-write-string operation)
         (corba-write-osequence corba-principal)		;principal
@@ -1063,7 +1088,8 @@ the server that no response is excpected."
       (process-send-region client (point-min) (point-max))
       ;;(message "Request %d sent" (corba-request-req-id req))
       ;;(accept-process-output)
-      (push req corba-waiting-requests))))
+      (unless no-response
+        (push req corba-waiting-requests)))))
 
 
 (defun corba-read-reply (req)
@@ -1136,37 +1162,43 @@ the server that no response is excpected."
           (error "Connection closed"))))))))
 
 
-;; Interface:
-(defun corba-get-next-respons (&optional flags)
+;; Interface: corba-next
+(defun corba-next (&optional no-wait)
+  "Return next request ready."
   (let ((req nil))
     (loop
      do (setq req (loop for client in (corba-get-clients)
 			thereis (corba-get-next-respons-1 client)))
-     until (or req (not (memq 'no-wait flags)))
+     until (or req no-wait)
      do (accept-process-output))
     req))
 
-;; Interface:
-(defun corba-request-get-response (request &optional flags)
-  "Get the response for the REQUEST sent earlier with `corba-request-send'.
-If FLAGS is list containing the symbols `no-wait', the function will
-not wait for the response if it is not immediately available. Returns
-`t' if the response has arrived otherwise returns `nil' (will always
-return `t' unless flags contains `no-wait'.)"
+
+(defun corba-request-get-response (request no-wait)
+  "Get the response for the REQUEST sent earlier with `corba-request-send'."
   (loop while (eq t (corba-request-result request))
         do (corba-get-next-respons-1 (corba-request-client request))
-        until (memq 'no-wait flags)
+        until no-wait
         do (accept-process-output))
   (not (eq t (corba-request-result request))))
 
 
-;; Interface:
+;; Interface: corba-poll
+(defun corba-poll (request)
+  (corba-request-get-response request t))
+
+
+;; Interface: corba-result
+(defun corba-result (request)
+  (corba-request-get-response request nil)
+  (corba-request-result request))
+
+
 (defun corba-request-invoke (req &optional flags)
   "Invoke the CORBA operation defined by the corba-request REQ.
 Result is the list of the values of the out parameters."
   (corba-request-send req)
-  (corba-request-get-response req)
-  (corba-request-result req))
+  (corba-result req))
 
 
 (defun corba-reset-all ()
@@ -1183,6 +1215,7 @@ Result is the list of the values of the out parameters."
   "The default orb")
 
 
+;; Interface: corba-init
 ;;;###autoload
 (defun corba-init (&optional args)
   (unless corba-orb
@@ -1218,7 +1251,7 @@ Result is the list of the values of the out parameters."
                         (cons pair ir-list)))))))
 
 
-;; Interface:
+;; Interface: corba-obj
 (defun corba-obj (str &optional type)
   "Create a proxy object from STR, optionally narrowing to TYPE.
 STR should be something acceptable by corba-string-to-object, e.g,,
@@ -1227,11 +1260,10 @@ TYPE is a repository ID or an absoulute name for an interface type.
 E.g, \"::CosNaming::NamingContext\"."
   (let ((obj (corba-string-to-object (corba-init) str)))
     (if (and obj type)
-        (corba-object-narrow obj type)
+        (corba-narrow obj type)
         obj)))
 
 
-;; Interface:
 (defun corba-resolve-initial-references (orb name)
   (let* ((ir-list (plist-get (cdr orb) :initial-references))
          (entry (assoc name ir-list)))
@@ -1243,8 +1275,6 @@ E.g, \"::CosNaming::NamingContext\"."
         object))))
 
 
-
-;; Interface:
 (defun corba-string-to-object (orb str)
   (if (string-match "\\(\\w+\\):" str)
       (let ((method (match-string 1 str))
@@ -1303,12 +1333,15 @@ E.g, \"::CosNaming::NamingContext\"."
                (corba-resolve-initial-references orb key))
               (t
                (let ((addr (car addrs)))
-                 ;;FIXME: what about other profiles? version?
-                 (make-corba-object
-                  :id ""
-                  :host (cadr addr)
-                  :port (caddr addr)
-                  :key key))))))))
+                 (let ((version (car addr))
+                       (host (cadr addr))
+                       (port (caddr addr)))
+                   ;;FIXME: what about other profiles? version?
+                   (make-corba-object
+                    :id ""
+                    :host host :port port :key key
+                    :profiles (list (corba-make-iiop-profile
+                                     version host port key)))))))))))
 
 
 (defun corba-parse-obj-addr (str)
@@ -1335,8 +1368,8 @@ E.g, \"::CosNaming::NamingContext\"."
       str))
 
 
-;; Interface:
-(defun corba-object-to-string (orb object)
+;; Interface: corba-string
+(defun corba-string (object)
   (let ((str (corba-make-encapsulation #'corba-write-ior object)))
     (concat "IOR:"
 	    (upcase (loop for c across str
@@ -1362,17 +1395,11 @@ E.g, \"::CosNaming::NamingContext\"."
 
 (defvar corba-trust-object-irid t)
 
-;; Interface:
-(defun corba-object-is-a (obj id)
+;; Interface: corba-typep
+(defun corba-typep (obj id)
   (or (if corba-trust-object-irid
           (equal id (corba-object-id obj)))
       (car (corba-funcall "_is_a" obj id))))
-
-;; Interface:
-(defun corba-object-is-nil (obj)
-  (or (null obj)
-      (and (null (corba-object-key obj))
-           (zerop (length (corba-object-profiles obj))))))
 
 
 (defun corba-require-repoid (str)
@@ -1385,15 +1412,21 @@ E.g, \"::CosNaming::NamingContext\"."
   str)
 
 
-;; Interface:
-(defun corba-object-narrow (obj id)
-  (setq id (corba-require-repoid id))
-  (unless (corba-object-is-a obj id)
-    (error "Cannot narrow to '%s', object %s" id obj))
-  (setf (corba-object-id obj) id)
-  obj)
+;; Interface: corba-narrow
+(defun corba-narrow (obj id)
+  "Narrow type of corba proxy OBJ to specified ID.
+If ID is nil, no narrowing is done.
+If ID is non-nil it should be and absoulute name or repository id for
+an interface."
+  (cond ((null id) obj)
+        (t
+         (setq id (corba-require-repoid id))
+         (unless (corba-typep obj id)
+           (error "Cannot narrow to '%s', object %s" id obj))
+         (setf (corba-object-id obj) id)
+         obj)))
 
-(defun corba-object-auto-narrow (obj)
+(defun corba-auto-narrow (obj)
   (let ((interface
          (corba-get-objects-interface obj)))
     (unless interface
@@ -1416,15 +1449,6 @@ E.g, \"::CosNaming::NamingContext\"."
 	    thereis (corba-find-opdef pint operation))))
 
 
-
-
-;;;; CORBA Structure support
-
-
-
-
-
-
 
 ;;;; GET/PUT operators
 
@@ -1444,6 +1468,7 @@ E.g, \"::CosNaming::NamingContext\"."
        ((:tk_alias) (cdddr tc))))))
 
 
+;; Interface: corba-get
 (defun corba-get (object key)
   (cond ((consp object)
          (let ((type (car object)))
@@ -1467,6 +1492,7 @@ E.g, \"::CosNaming::NamingContext\"."
         (t (error "Bad object type: %S" object))))
 
 
+;; Interface: corba-put
 (defun corba-put (object key value)
   (cond ((stringp key)
          (corba-funcall (concat "_set_" key) object value))
@@ -1491,36 +1517,47 @@ E.g, \"::CosNaming::NamingContext\"."
 
 
 
-;;;; corba-get-ir
+;;;; Initial Services Convenience Access
 
+;; Interface: corba-get-ir
 (defun corba-get-ir ()
   (require 'corba-load-ifr)
-  (corba-object-narrow
+  (corba-narrow
    (corba-resolve-initial-references (corba-init) "InterfaceRepository")
    "::CORBA::Repository"))
 
+;; Interface: corba-get-ns
+(defun corba-get-ns ()
+  (require 'corba-load-naming)
+  (corba-narrow
+   (corba-resolve-initial-references (corba-init) "NameService")
+   "::CosNaming::NamingContextExt"))
 
 
 ;;;; Easy DII - corba-funcall
 
-;; Interface:
-(defun corba-object-create-request (object op args)
-  "Create a request object for an operation on a CORBA object.
-OBJECT is the CORBA object, OP the name of the operation and arguments
-ARGS. The arguments are the in-paramenters of the operation in the
-IDL-defition.
-    This functions requires that the interface for the
-object is known to the ORB, either from an explicit definition of the
-interface or from an Interface Repository.
-    OP can also be a list (INTERFACE-ID OP-NAME) to use the operation
-definition from a specific interface inditified by INTERFACE-ID,
-the interface repository ID."
-  (let* ((interface-id (if (consp op) (first op) (corba-object-id object)))
-         (operation (if (consp op) (second op) op))
+
+(defun corba-object-create-request (&rest args)
+  "Create a request object for an operation on a proxy object.
+Two version of arglist for use with interface repository info or without:
+1. (op obj args..)
+2. (result-type op obj { :in type value | :inout type value | :out type }* 
+           [ :raises exc-list ])
+Arglist 2 is for use without interface repository, all type information is
+included in the list."
+  (if (consp (car args))
+      (apply 'corba-create-noir-request args)
+      (apply 'corba-create-ir-request args)))
+
+
+(defun corba-create-ir-request (operation object &rest args)
+  (assert (corba-object-p object))
+  (assert (stringp operation))
+  (let* ((interface-id (corba-object-id object))
 	 (opdef (corba-lookup-operation operation interface-id)))
     (unless opdef
       (error "Undefined operation %s for interface %s"
-             op interface-id))
+             operation interface-id))
     (unless (= (length args)
 	       (length (corba-opdef-inparams opdef)))
       (error "Wrong number of arguments to operation"))
@@ -1532,20 +1569,45 @@ the interface repository ID."
                           args)))
 
 
-;; Interface:
-(defun corba-invoke (obj op &rest args)
-  "Invoke operation OP on object OBJ with arguments ARGS.
-Returns the list of result and out parameters."
-  (corba-request-invoke
-   (corba-object-create-request obj op args)))
+(defun corba-create-noir-request (result-type op obj &rest params)
+  ;; params = (  { :in type value | :inout type value | :out type }* exc)
+  ;; exc = [ :raises exc-list ]
+  (assert (corba-object-p obj))
+  (assert (stringp op))
+  (setq result-type (corba-typecode result-type))
+  (let ((inparams nil)
+        (outparams (if (eq (car result-type) :tk_void) nil (list result-type)))
+        (args nil)
+        (raises nil))
+    (while params
+      (let ((mode (pop params)))
+        (assert (memq mode '(:in :inout :out :raises)))
+        (cond ((eq mode :raises)
+               (setq raises (mapcar #'corba-typecode (pop params))))
+              (t
+               (let ((type (corba-typecode (pop params))))
+                 (unless (eq mode :in)
+                   (push type outparams))
+                 (unless (eq mode :out)
+                   (let ((value (pop params)))
+                     (push value args)
+                     (push type inparams))))))))
+    (corba-create-request obj op (nreverse inparams) (nreverse outparams)
+                          raises (nreverse args))))
 
 
-;; Interface:
+;; Interface: corba-funcall
 (defun corba-funcall (op obj &rest args)
   "Invoke operation OP on object OBJ with arguments ARGS.
-Returns the list of result and out parameters."
+Returns the list of result and out parameters.
+Use without interface repository information:
+\(:noir op obj result-type { :in type value | :inout type value | :out type }* 
+           [ :raises exc-list ])
+alt:
+\(result-type op obj { :in type value | :inout type value | :out type }* 
+           [ :raises exc-list ]) "
   (corba-request-invoke
-   (corba-object-create-request obj op args)))
+   (apply #'corba-object-create-request op obj args)))
 
 
 (defun corba-locate (obj)
@@ -1561,18 +1623,13 @@ The result is status for response, 1 - ?, 3 - ?."
 ;;;; Name Service Shortcuts
 
 
-(defun corba-get-ns ()
+;; Interface: corba-resolve
+(defun corba-resolve (name &optional type)
   (require 'corba-load-naming)
-  (corba-object-narrow
-   (corba-resolve-initial-references (corba-init) "NameService")
-   "::CosNaming::NamingContextExt"))
+  (corba-narrow (car (corba-funcall "::CosNaming::NamingContextExt::resolve_str"
+                                    (corba-get-ns) name))
+                type))
 
-
-(defun corba-resolve (name)
-  (require 'corba-load-naming)
-  (car (corba-funcall "::CosNaming::NamingContextExt::resolve_str"
-                      (corba-get-ns)              
-                      name)))
 
 
 ;;;; ORBit hacks
@@ -1600,6 +1657,7 @@ The result is status for response, 1 - ?, 3 - ?."
   (gethash id corba-local-repository))
 
 
+;; Interface: corba-lookup
 (defun corba-lookup (id)
   (gethash id corba-local-repository))
 
@@ -1670,6 +1728,7 @@ The result is status for response, 1 - ?, 3 - ?."
     (attribute . corba-load-attribute)))
 
 
+;; Interface: corba-load-repository
 (defun corba-load-repository (repr)
   "Load repository from representation REPR."
   (when repr
@@ -1776,6 +1835,43 @@ The result is status for response, 1 - ?, 3 - ?."
    (operation "_non_existent" :op_normal (:tk_boolean)
     () () )))
 
+
+;;;; corba-new
+
+;;; interface
+;; Interface: corba-new
+(defun corba-new (type &rest fields)
+  (cond ((stringp type)
+         (let ((tc (corba-lookup-type type)))
+           (assert (consp tc))          ; should be tc
+           (ecase (car tc)
+             (:tk_struct (corba-new-struct tc fields))
+             (:tk_union  (debug)))))
+        ((eq type :request)
+         ;; op obj args..
+         ;; result-type op obj args..
+         (apply 'corba-object-create-request fields))))
+
+
+
+;;;; corba-send
+
+;; Interface: corba-send
+(defun corba-send (req-or-op &rest args)
+  "(corba-send req &optional no-response)
+\(corba-send op obj args..)
+\(corba-send result-type op obj args..)
+Returns: request"
+  (cond ((corba-request-p req-or-op)
+         (corba-request-send req-or-op (car args))
+         req-or-op)
+        (t
+         (let ((oneway (if (eq req-or-op :oneway)
+                           (progn (setq req-or-op (pop args)) t)))
+               (request
+                (apply 'corba-object-create-request req-or-op args)))
+           (corba-request-send request oneway)
+           request))))
 
 
 ;;; corba.el ends here

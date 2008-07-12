@@ -191,3 +191,53 @@ Alt:  (corba-new union-type member-name-keyword value)
       (corba-new union-type :union-value value :union-discriminator
       discr)
 
+
+
+* 2008-07-12 
+
+New interface functions
+-----------------------
+
+Setup
+
+(corba-init args)
+
+Requests
+
+request-arglist ::= { op obj {arg}* |
+    result-type op obj { :in type value | :inout type value | :out type }* 
+           [ :raises exc-list ] }
+
+(corba-funcall request-arglist)  => result*
+(corba-send [:oneway] request-arglist)  => req
+(corba-new :request request-arglist)  => req
+(corba-send req &optional no-response) => req
+(corba-result req) => list
+(corba-poll req) => bool
+(corba-next &optional no-wait) => req/nil
+
+Data types
+
+(corba-new type-str args..)
+(corba-get thing key)
+(corba-put thing key value)
+(corba-any typecode value) => any
+(corba-any-p x) => boolean
+(corba-any-typecode any) => typecode
+(corba-any-value any) => value
+
+Proxies
+
+(corba-obj str &optional type)
+(corba-narrow obj type)
+(corba-typep obj type)
+(corba-string obj) => "IOR:..."
+(corba-resolve name &optional type)
+(corba-get-ir)
+(corba-get-ns)
+
+Repository
+
+(corba-typecode typecode-or-id) => typecode
+(corba-lookup name) => interface | typecode
+(corba-load-repository)

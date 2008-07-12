@@ -1,7 +1,7 @@
 
 (setq tc-e1
-      (corba-intern-type '(:tk_enum "IDL:my-enum:1.0" "my-enum"
-                           ("foo" "fie" "fumm"))))
+      (corba-typecode '(:tk_enum "IDL:my-enum:1.0" "my-enum"
+                        ("foo" "fie" "fumm"))))
 
 (assert (equal (corba-enum-symbols tc-e1) '(:foo :fie :fumm)))
 
@@ -33,7 +33,9 @@
   (setq parseq (corba-get-typecode "IDL:omg.org/CORBA/ParDescriptionSeq:1.0"))
   (corba-get-attribute irdef "_get_params" parseq)
   (corba-resolve "hello")
-  )
+  (let ()
+    (corba-funcall :noir "resolve_str" (corba-get-ns) corba-tc-object 
+                   :in corba-tc-string "hello-lapps")))
 
 
 (setq any (corba-any corba-tc-string "hello"))
@@ -47,3 +49,7 @@
 (setq tc (make-corba-typecode :tk_sequence '(:tk_null 0)))
 (corba-put tc :content_type corba-tc-string)
 (assert (equal tc `(:tk_sequence ,corba-tc-string 0)))
+
+
+(defun noir-resolve (ns name)
+  (corba-funcall corba-tc-object "resolve_str" ns :in corba-tc-string name))
