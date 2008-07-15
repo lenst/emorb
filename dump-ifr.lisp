@@ -1,6 +1,6 @@
 (in-package :cl-user)
 
-(require 'clorb)
+(require "clorb")
 
 
 (defvar *tc-dumped* nil)
