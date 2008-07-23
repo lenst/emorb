@@ -65,15 +65,13 @@
 (eval-when-compile (load "cl-extra"))   ; This seems to fix some strange autoloading
                                         ; problem.
 
-(defvar corba-name-service "file:/tmp/NameService"
+(defvar corba-name-service nil
   "*Reference to the CORBA NameService.
-This should be the name of a file where the name service IOR is stored
-or the IOR.")
+Should be a object reference in string form (see `corba-obj').")
 
-(defvar corba-interface-repository "file:/tmp/InterfaceRepository"
+(defvar corba-interface-repository nil
   "*Reference to the CORBA InterfaceRepository.
-This should be the name of a file where the service IOR is stored
-or the IOR.")
+Should be a object reference in string form (see `corba-obj').")
 
 (defvar corba-principal ""
   "*Octet sequence used for the principal field in the GIOP message.
@@ -113,7 +111,7 @@ If nil, the actual value will be returned.")
   inparams
   outparams
   raises
-  (mode :op_normal))
+  (mode :OP_NORMAL))
 
 
 (defstruct corba-interface
@@ -1221,8 +1219,10 @@ Result is the list of the values of the out parameters."
   (unless corba-orb
     (setq corba-orb
           `(orb :initial-references
-                (("NameService" ,corba-name-service)
-                 ("InterfaceRepository" ,corba-interface-repository)))))
+                (,@(if corba-name-service
+                       `(("NameService" ,corba-name-service)))
+                 ,@(if corba-interface-repository
+                       `(("InterfaceRepository" ,corba-interface-repository)))))))
   (corba-process-orb-args corba-orb args)
   corba-orb)
 
@@ -1488,7 +1488,7 @@ an interface."
         ((vectorp object)
          (let ((pos (corba-vposq key (aref object 0))))
            (if pos (aref object pos)
-               (error "Invalid key: %s, %s" key object))))
+               (error "Invalid key: %S, %S" key object))))
         (t (error "Bad object type: %S" object))))
 
 
@@ -1787,17 +1787,18 @@ The result is status for response, 1 - ?, 3 - ?."
 
     ;; result as a pseudo out param
     (unless (eq (car-safe result-type) :tk_void)
-      (push (list "" :param_out result-type) params))
+      (push (list "" :PARAM_OUT result-type) params))
 
     (corba--addop
      (make-corba-opdef
       :name name
-      :mode mode
+      :mode (or (car (assq mode '((:op_normal . :OP_NORMAL) (:op_oneway . :OP_ONEWAY))))
+                mode)
       :inparams (loop for (nil pmode type) in params
-                   unless (eql pmode :param_out)
+                   unless (memq pmode '(:param_out :PARAM_OUT))
                    collect (corba-typecode type))
       :outparams (loop for (nil pmode type) in params
-                    unless (eql pmode :param_in)
+                    unless (memq pmode '(:param_in :PARAM_IN))
                     collect (corba-typecode type))
       :raises exceptions))))
 
@@ -1811,7 +1812,7 @@ The result is status for response, 1 - ?, 3 - ?."
      (make-corba-opdef
       :name (format "_get_%s" name)
       :outparams (list type)))
-    (when (eq mode :attr_normal)
+    (when (memq mode '(:attr_normal :ATTR_NORMAL))
       (corba--addop
        (make-corba-opdef
         :inparams (list type)

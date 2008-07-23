@@ -7,19 +7,16 @@
 (require 'corba-meta)
 
 
-(defun corba-make-attribute-get (name var)
-  `(corba-get ,var ,name))
-
-
 (defun corba-make-translated-form (item var)
   ;; (struct "absolute_name" (> "type" typecode) contents)
   ;; or "absolute_name", (> "type" typecode), ...
   (cond ((null item) nil)
         ((eq item 'contents) `(do-contents ,var))
+        ((keywordp item) `(corba-get ,var ,item))
         ((symbolp item) `',item)
-        ((stringp item) (corba-make-attribute-get item var))
+        ((stringp item) `(corba-get ,var ,item))
         ((and (consp item) (memq (car item) '(> @)))
-         (let ((attr (corba-make-attribute-get (second item) var)))
+         (let ((attr `(corba-get ,var ,(second item))))
            (assert (null (cdddr item)))
            (if (eq (car item) '>)
                (ecase (third item)

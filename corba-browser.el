@@ -28,7 +28,7 @@
            (lambda (contained)
              (let ((name (corba-get contained "name")))
                `(tree-widget :tag ,name
-                             :dynargs corba-browser-expand-ir
+                             :expander corba-browser-expand-ir
                              :orb ,orb
                              :ir-object ,contained )))
            (condition-case err
@@ -75,7 +75,7 @@
                        `(tree-widget
                          :tag ,(format "%s.%s" id kind)
                          :ns-name ,name :orb ,orb
-                         :dynargs corba-browser-expand-ns
+                         :expander corba-browser-expand-ns
                          :has-children t ))))
                (first result)))))
     (error ;;corba-system-exception
@@ -99,12 +99,12 @@
                    :open t
                    `(tree-widget
                      :tag "NameService"
-                     :dynargs corba-browser-expand-ns
+                     :expander corba-browser-expand-ns
                      :has-children t
                      :orb ,orb )
                    `(tree-widget
                      :tag "InterfaceRepository"
-                     :dynargs corba-browser-expand-ir
+                     :expander corba-browser-expand-ir
                      :has-children t
                      :orb ,orb )) )
   (use-local-map widget-keymap)
