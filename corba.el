@@ -981,7 +981,7 @@ If nil, the actual value will be returned.")
         (save-excursion
           (set-buffer buffer)
           (set-buffer-multibyte nil)
-          (setq buffer-undo-list nil)
+          (setq buffer-undo-list t)
           (setq corba-message-size nil)
           (erase-buffer))
         (let ((proc
@@ -1129,7 +1129,7 @@ is excpected."
         (cond
          ((<= (point-max) corba-message-size)
           (setq corba-message-size nil))
-         ((memq msgtype '(1 4))         ;Reply
+         ((memq msgtype '(1 4))         ;Reply / LocateReply
           (when (= msgtype 1)
             ;; Ignore service context
             (corba-read-service-context))
@@ -1545,9 +1545,12 @@ Two version of arglist for use with interface repository info or without:
            [ :raises exc-list ])
 Arglist 2 is for use without interface repository, all type information is
 included in the list."
-  (if (consp (car args))
-      (apply 'corba-create-noir-request args)
-      (apply 'corba-create-ir-request args)))
+  (cond ((eq 'locate (car args))
+         (corba-create-request (cadr args) 'locate nil nil nil nil))
+        ((consp (car args))
+         (apply 'corba-create-noir-request args))
+        (t
+         (apply 'corba-create-ir-request args))))
 
 
 (defun corba-create-ir-request (operation object &rest args)
