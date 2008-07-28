@@ -1373,6 +1373,7 @@ E.g, \"::CosNaming::NamingContext\"."
 
 ;; Interface: corba-string
 (defun corba-string (object)
+  "Return a stringified object reference."
   (let ((str (corba-make-encapsulation #'corba-write-ior object)))
     (concat "IOR:"
 	    (upcase (loop for c across str
@@ -1398,12 +1399,6 @@ E.g, \"::CosNaming::NamingContext\"."
 
 (defvar corba-trust-object-irid t)
 
-;; Interface: corba-typep
-(defun corba-typep (obj id)
-  (or (if corba-trust-object-irid
-          (equal id (corba-object-id obj)))
-      (car (corba-funcall "_is_a" obj id))))
-
 
 (defun corba-require-repoid (str)
   (when (corba-aname-p str)
@@ -1413,6 +1408,16 @@ E.g, \"::CosNaming::NamingContext\"."
   (unless (string-match "^IDL:" str)
     (error "Invalid repoid: %s" str))
   str)
+
+
+;; Interface: corba-typep
+(defun corba-typep (obj id)
+  "Test if a CORBA object OBJ is of a given type ID.
+ID should be a repository identifier or the absolute name of the interface."
+  (setq id (corba-require-repoid id))
+  (or (if corba-trust-object-irid
+          (equal id (corba-object-id obj)))
+      (car (corba-funcall "_is_a" obj id))))
 
 
 ;; Interface: corba-narrow
@@ -1473,6 +1478,7 @@ an interface."
 
 ;; Interface: corba-get
 (defun corba-get (object key)
+  "Get slot from struct or attribute from object."
   (cond ((consp object)
          (let ((type (car object)))
            (cond ((eq type 'any)
@@ -1497,6 +1503,7 @@ an interface."
 
 ;; Interface: corba-put
 (defun corba-put (object key value)
+  "Set slot in struct or attribute of object."
   (cond ((stringp key)
          (corba-funcall (concat "_set_" key) object value))
         ((consp object)
@@ -1524,6 +1531,7 @@ an interface."
 
 ;; Interface: corba-get-ir
 (defun corba-get-ir ()
+  "Return the configured InterfaceRepository object."
   (require 'corba-load-ifr)
   (corba-narrow
    (corba-resolve-initial-references (corba-init) "InterfaceRepository")
@@ -1531,6 +1539,8 @@ an interface."
 
 ;; Interface: corba-get-ns
 (defun corba-get-ns ()
+  "Return the configured name service object.
+The object has been narrowd to the NamingContextExt interface."
   (require 'corba-load-naming)
   (corba-narrow
    (corba-resolve-initial-references (corba-init) "NameService")
@@ -1839,6 +1849,16 @@ alt:
 ;;; interface
 ;; Interface: corba-new
 (defun corba-new (type &rest fields)
+  "Create a new object of TYPE initiated from FIELDS.
+Possible kinds objects are struct, union, request.
+
+Struct: TYPE = repo-id or absolute name
+        FIELDS = { slot-key value }*
+Union:  TYPE = repo-id or absolute name
+        FIELDS = descriminatior-value union-value
+Request: TYPE = :request
+        FIELDS = request-arglist
+see corba-funcall for request-arglist. "
   (cond ((stringp type)
          (let ((tc (corba-lookup-type type)))
            (assert (consp tc))          ; should be tc
