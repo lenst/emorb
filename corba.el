@@ -651,19 +651,30 @@ If nil, the actual value will be returned.")
 
 
 
+;;;; TypeCode Meta Cache
+
+
+(defvar corba-typecode-meta-cache
+  (make-hash-table))
+
+(defmacro corba-with-cached-meta (typecode &rest body)
+  (declare (indent 1))
+  `(let ((_tc ,typecode))
+     (or (gethash _tc corba-typecode-meta-cache)
+         (puthash _tc
+                  (progn ,@body)
+                  corba-typecode-meta-cache))))
+
+
+
 ;;;; CORBA::Enum
 
+;;  (:tk_enum id name (member-name*))
 
 (defun corba-enum-symbols (tc)
   (assert (eql (corba-typecode-kind tc) :tk_enum))
-  (let* ((params (corba-typecode-params tc))
-         (member-slot (cddr params))
-         (symbols (cdr member-slot)))
-    (unless symbols
-      (setq symbols (mapcar 'corba-make-keyword (car member-slot)))
-      (setcdr member-slot symbols))
-    symbols))
-
+  (corba-with-cached-meta tc
+    (mapcar 'corba-make-keyword (nth 3 tc))))
 
 (defun corba-marshal-enum (arg type)
   (if (numberp arg)
@@ -756,22 +767,14 @@ If nil, the actual value will be returned.")
        (= (length sexp) (length (aref sexp 0)))))
 
 
-(defvar corba-struct-symbols-cache
-  (make-hash-table))
-
-
 (defun corba-struct-symbols (tc)
   ;; => ["name" :field1 :field2 ...]
   (assert (memq (corba-typecode-kind tc) '(:tk_struct :tk_except)))
-  (let ((syms (gethash tc corba-struct-symbols-cache)))
-    (unless syms
-      (setq syms      
-            (apply 'vector
-                   (cons (nth 2 tc)
-                         (mapcar (lambda (m) (corba-make-keyword (car m)))
-                                 (nth 3 tc)))))
-      (puthash tc syms corba-struct-symbols-cache))
-    syms))
+  (corba-with-cached-meta tc
+    (apply 'vector
+           (cons (nth 2 tc)
+                 (mapcar (lambda (m) (corba-make-keyword (car m)))
+                         (nth 3 tc))))))
 
 
 (defun corba-marshal-struct (struct struct-type)
