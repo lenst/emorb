@@ -1,7 +1,9 @@
+(require 'corba)
 
 (setq tc-e1
       (corba-typecode '(:tk_enum "IDL:my-enum:1.0" "my-enum"
                         ("foo" "fie" "fumm"))))
+
 
 (assert (equal (corba-enum-symbols tc-e1) '(:foo :fie :fumm)))
 
@@ -15,7 +17,26 @@
 (corba-in-work-buffer
   (corba-write-typecode tc-e1)
   (goto-char (point-min))
-  (corba-read-typecode))
+  (assert (equal (corba-read-typecode) tc-e1)))
+
+
+(setq tc-s1 (corba-typecode `(:tk_struct "IDL:my-struct:1.0" "my-struct"
+                                         (("a" ,corba-tc-string)
+                                          ("b" ,corba-tc-ulong)))))
+
+(assert (equal (corba-struct-symbols tc-s1) [ "my-struct" :a :b]))
+(let ((s (corba-new "IDL:my-struct:1.0" :a "hej" :b 12)))
+  (assert (equal (corba-get s :a) "hej"))
+  (assert (= (corba-get s :b) 12))
+  (corba-in-work-buffer
+    (corba-write-typecode tc-s1)
+    (corba-marshal s tc-s1)
+    (goto-char (point-min))
+    (assert (equal (corba-read-typecode) tc-s1))
+    (assert (equal (corba-unmarshal tc-s1) s))))
+
+
+
 
 
 (defvar corba-services-running nil)
@@ -34,7 +55,7 @@
   (corba-get-attribute irdef "_get_params" parseq)
   (corba-resolve "hello")
   (let ()
-    (corba-funcall :noir "resolve_str" (corba-get-ns) corba-tc-object 
+    (corba-funcall corba-tc-object "resolve_str" (corba-get-ns)  
                    :in corba-tc-string "hello-lapps")))
 
 
