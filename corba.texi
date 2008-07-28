@@ -1,10 +1,196 @@
 \input texinfo   @c -*-texinfo-*-
 @c %**start of header
 @setfilename corba.info
-@settitle corba
+@settitle Emacs CORBA Library
 @c @setchapternewpage odd
 @c %**end of header
-@c $Id: corba.texi,v 1.3 2005/02/23 18:42:09 lenst Exp $
+
+@copying
+This manual is for Emacs CORBA Library
+
+Copyright @copyright{} 2008 Lennart Staflin
+
+@quotation
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.1 or
+any later version published by the Free Software Foundation; with no
+Invariant Sections, with the Front-Cover Texts being ``A GNU Manual,''
+and with the Back-Cover Texts as in (a) below.  A copy of the
+license is included in the section entitled ``GNU Free Documentation
+License.''
+
+(a) The FSF's Back-Cover Text is: ``You have freedom to copy and modify
+this GNU Manual, like GNU software.  Copies published by the Free
+Software Foundation raise funds for GNU development.''
+@end quotation
+@end copying
+
+@dircategory Emacs
+@direntry
+* corba: (corba).
+@end direntry
+
+
+@node Top, Data Types, (dir), (dir)
+@comment  node-name,  next,  previous,  up
+
+@menu
+* Data Types::                  
+* Operations::                  
+* Obsolete::                    
+@end menu
+
+@node Data Types, Operations, Top, Top
+@comment  node-name,  next,  previous,  up
+@chapter Data Types
+
+@deftp {Data type} corba-request
+Describes a request (an operation on a CORBA object) to be sent to a
+remote server.  The request has attributes for object, operation,
+arguments, result, ...
+
+A @code{corba-request} can be created from an object with
+@code{corba-object-create-request} or directly with
+@code{make-corba-request}.
+@end deftp
+
+@deftp {Data type} corba-object
+An object reference to a CORBA object.  The object can be a nil object,
+recognized with the @code{corba-object-is-nil} predicate.  The type of
+the object can be checked with @code{corba-object-is-a}.  The expression
+@code{(corba-object-is-a obj "IDL:omg.org/CORBA/Object:1.0")} should
+always be true for any CORBA object @code{obj}.
+@end deftp
+
+
+@node Operations, Obsolete, Data Types, Top
+@comment  node-name,  next,  previous,  up
+@chapter Operations
+
+@section Data Manipulation
+
+
+@defun corba-new type fields
+Creates a CORBA Struct, Union or Request:
+
+@enumerate
+@item 
+Creating a CORBA Struct:
+
+@example
+(corba-new @var{type-identifier} @{ @var{keyword} @var{value} @}*)
+@end example
+
+@var{type-identifier} is a string that is a repository ID or an absolute
+name of a struct type. The keywords are keyword forms of the member names.
+
+@example
+(corba-new "::CosNaming::NameComponent" :id "hello" :kind "world")
+@result{}
+[["NameComponent" :id :kind]
+ "hello" "world"]
+@end example
+
+@item 
+Creating a CORBA Union:
+
+@example
+(corba-new @var{type-identifier} @var{discriminator} @var{value})
+@end example
+
+@item 
+Creating a request:
+
+@example
+(corba-new :request @var{request-arglist})
+@end example
+
+@end enumerate
+@end defun
+
+@defun corba-get object slot
+Get @var{slot} from @var{object}. Possible types of objects
+
+@table @strong
+@item struct
+Get struct slot from a CORBA struct. The @var{slot} parameter should
+be a keyword naming a slot in the struct.
+
+@item proxy
+Get attribute from a CORBA object. The @var{slot} parameter should be
+a string naming an attribute of the object.
+
+@end table
+
+@end defun
+
+@defun corba-put object slot value
+
+@end defun
+
+
+@section Requests
+
+A @dfn{request-arglist} is a list of arguments describing a CORBA
+request. These arglists are used in @code{corba-funcall},
+@code{corba-send}, and @code{corba-new :request}. The request-arglist
+comes in two kinds:
+
+@enumerate
+@item
+For use with type information:
+
+@format
+@var{operation} @var{object} @{ @var{arg} @}*
+@end format
+
+where @var{operation} is a string, the name of an operation in the
+interface of the object or @code{_get_@var{attribute-name}} to get an
+attribute, or @code{_set_@var{attribute-name}} (with one argument) to
+set an attribute.
+
+@item
+For use without type information, i.e. DII:
+
+@format
+@var{result-type} @var{operation} @var{object} @{ @code{:in} @var{type} @var{arg} | @
+@code{:inout} @var{type} @var{arg} | @code{:out} @var{type}  @}*  
+    [ @code{:raises} @var{exception-list} ]
+
+where @var{result-type} is typecode for result (@code{(:tk_void)} if no result)
+      @var{object} is a corba-object (i.e. proxy)
+      @var{type} is typecode for argument
+      @var{arg} is argument value
+      @var{exception-list} is ??
+@end format
+
+@end enumerate
+
+
+@defun corba-funcall @var{request-arglist}
+Where @var{request-arglist} is a request-arglist as described above.
+
+Send request to remote object and wait for reply. Returns the list of
+result (unless result type is void) and output (i.e @code{out} and
+@code{inout}) parameters.
+@end defun
+
+@defun corba-send [@code{:oneway}] @var{request-arglist}
+Where @var{request-arglist} is a request-arglist as described above.
+
+Send request to remote object and do not wait for reply. 
+Returns a request object. The request can be polled
+(@code{corba-poll}) to see if reply has arrived. The results of the
+reply can be retrieved with @code{corba-result}.
+
+If @code{:oneway} is specified, no reply is expected and
+@code{corba-poll} or @code{corba-result} should not be used.
+@end defun
+
+
+@node Obsolete,  , Operations, Top
+@comment  node-name,  next,  previous,  up
+@chapter Obsolete
 
 @defun corba-object-create-request object op args
 Create a request object for the corba @var{object} and the operation
@@ -40,23 +226,6 @@ arrived otherwise returns @code{nil} (will always return @code{t} unless
 flags contains @code{no-wait}.)
 @end defun
 
-@deftp {Data type} corba-request
-Describes a request (an operation on a CORBA object) to be sent to a
-remote server.  The request has attributes for object, operation,
-arguments, result, ...
-
-A @code{corba-request} can be created from an object with
-@code{corba-object-create-request} or directly with
-@code{make-corba-request}.
-@end deftp
-
-@deftp {Data type} corba-object
-An object reference to a CORBA object.  The object can be a nil object,
-recognized with the @code{corba-object-is-nil} predicate.  The type of
-the object can be checked with @code{corba-object-is-a}.  The expression
-@code{(corba-object-is-a obj "IDL:omg.org/CORBA/Object:1.0")} should
-always be true for any CORBA object @code{obj}.
-@end deftp
 
 The standard ORB interface.
 
@@ -121,3 +290,4 @@ ELISP> (corba-invoke ns "list" 100)
  [cl-struct-corba-object "" nil nil nil nil nil])
 @end example
 
+@bye
