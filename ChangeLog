@@ -1,3 +1,7 @@
+2008-07-27  Lennart Staflin  <lenst@lysator.liu.se>
+
+	* corba.el (corba-locate): remove
+
 2008-07-11  Lennart Staflin  <lenst@lysator.liu.se>
 
 	* corba.el (corba-narrow): new name was corba-object-narrow

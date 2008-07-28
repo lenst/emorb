@@ -1613,15 +1613,6 @@ alt:
    (apply #'corba-object-create-request op obj args)))
 
 
-(defun corba-locate (obj)
-  "Send a Locate Request for the object OBJ.
-The result is status for response, 1 - ?, 3 - ?."
-  (let ((req (make-corba-request :object obj
-                                 :operation 'locate)))
-    (corba-request-invoke req)))
-
-
-
 
 ;;;; Name Service Shortcuts
 
