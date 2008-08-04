@@ -10,26 +10,23 @@
 ;; Enum TC representation:
 ;; (:tk_enum id name (member-name*))
 
-(setq tc-e1
-      (corba-typecode '(:tk_enum "IDL:my-enum:1.0" "my-enum"
-                        ("foo" "fie" "fumm"))))
+(let ((tc-e1
+       (corba-typecode '(:tk_enum "IDL:my-enum:1.0" "my-enum"
+                                  ("foo" "fie" "fumm")))))
 
+  (assert (equal (corba-enum-symbols tc-e1) '(:foo :fie :fumm)))
 
-(assert (equal (corba-enum-symbols tc-e1) '(:foo :fie :fumm)))
+  (corba-in-work-buffer
+    (corba-marshal :fie tc-e1)
+    (corba-marshal :fumm tc-e1)
+    (goto-char (point-min))
+    (assert (= (corba-read-ulong) 1))
+    (assert (eq (corba-unmarshal tc-e1) :fumm)))
 
-(corba-in-work-buffer
-  (corba-marshal :fie tc-e1)
-  (corba-marshal :fumm tc-e1)
-  (goto-char (point-min))
-  (assert (= (corba-read-ulong) 1))
-  (assert (eq (corba-unmarshal tc-e1) :fumm)))
-
-(corba-in-work-buffer
-  (corba-write-typecode tc-e1)
-  (goto-char (point-min))
-  (assert (equal (corba-read-typecode) tc-e1)))
-
-
+  (corba-in-work-buffer
+    (corba-write-typecode tc-e1)
+    (goto-char (point-min))
+    (assert (equal (corba-read-typecode) tc-e1))))
 
 ;;;; Sequence and Array
 
@@ -60,22 +57,22 @@
 
 ;;;; Struct
 
-(setq tc-s1 (corba-typecode `(:tk_struct "IDL:my-struct:1.0" "my-struct"
-                                         (("a" ,corba-tc-string)
-                                          ("b" ,corba-tc-ulong)))))
+(let ((tc-s1 (corba-typecode `(:tk_struct "IDL:my-struct:1.0" "my-struct"
+                                          (("a" ,corba-tc-string)
+                                           ("b" ,corba-tc-ulong))))))
 
-(assert (equal (corba-struct-symbols tc-s1) [ "my-struct" :a :b]))
-(let ((s (corba-new "IDL:my-struct:1.0" :a "hej" :b 12)))
-  (assert (equal (corba-get s :a) "hej"))
-  (assert (= (corba-get s :b) 12))
-  (corba-put s :b 13)
-  (assert (= (corba-get s :b) 13))
-  (corba-in-work-buffer
-    (corba-write-typecode tc-s1)
-    (corba-marshal s tc-s1)
-    (goto-char (point-min))
-    (assert (equal (corba-read-typecode) tc-s1))
-    (assert (equal (corba-unmarshal tc-s1) s))))
+  (assert (equal (corba-struct-symbols tc-s1) [ "my-struct" :a :b]))
+  (let ((s (corba-new "IDL:my-struct:1.0" :a "hej" :b 12)))
+    (assert (equal (corba-get s :a) "hej"))
+    (assert (= (corba-get s :b) 12))
+    (corba-put s :b 13)
+    (assert (= (corba-get s :b) 13))
+    (corba-in-work-buffer
+      (corba-write-typecode tc-s1)
+      (corba-marshal s tc-s1)
+      (goto-char (point-min))
+      (assert (equal (corba-read-typecode) tc-s1))
+      (assert (equal (corba-unmarshal tc-s1) s)))))
 
 
 
@@ -132,27 +129,29 @@
     (assert (equal s `(corba-system-exception "IDL:omg.org/CORBA/BAD_PARAM:1.0"
                                               ,corba-omgvmcid-upper 234
                                               :COMPLETED_MAYBE)))))
+
 
 ;;;; ANY
 
-(setq any (corba-any corba-tc-string "hello"))
-(assert (equal (corba-any-value any) "hello"))
-(assert (equal (corba-get any :any-value) "hello"))
-(corba-put any :any-value "fisk")
-(assert (equal (corba-get any :any-value) "fisk"))
-(assert (equal (corba-get corba-tc-string :length) 0))
-(assert (equal (corba-get corba-tc-object :name) "Object"))
+(let ((any (corba-any corba-tc-string "hello")))
+  (assert (equal (corba-any-value any) "hello"))
+  (assert (equal (corba-get any :any-value) "hello"))
+  (corba-put any :any-value "fisk")
+  (assert (equal (corba-get any :any-value) "fisk"))
+  (assert (equal (corba-get corba-tc-string :length) 0))
+  (assert (equal (corba-get corba-tc-object :name) "Object")))
 
 
 ;;;; Mutable TC
 
-(setq tc (make-corba-typecode :tk_sequence '(:tk_null 0)))
-(corba-put tc :content_type corba-tc-string)
-(assert (equal tc `(:tk_sequence ,corba-tc-string 0)))
+(let ((tc (make-corba-typecode :tk_sequence '(:tk_null 0))))
+  (corba-put tc :content_type corba-tc-string)
+  (assert (equal tc `(:tk_sequence ,corba-tc-string 0))))
 
 
 
 ;;;; noir-resolve
+
 (defun noir-resolve (ns name)
   (corba-funcall corba-tc-object "resolve_str" ns :in corba-tc-string name))
 

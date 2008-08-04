@@ -201,12 +201,16 @@ If nil, the actual value will be returned.")
   (insert n
           (logand (ash n -8)  255)))
 
+(defsubst corba-write-ushort (n) (corba-write-short n))
+
 (defun corba-write-ulong (n)
   (corba-write-align 4)
   (insert (logand n           255)
           (logand (ash n -8)  255)
           (logand (ash n -16) 255)
           (logand (ash n -24) 255)))
+
+(defsubst corba-write-long (n) (corba-write-ulong n))
 
 (defun corba-write-string (s)
   (corba-write-ulong (1+ (length s)))
@@ -412,20 +416,17 @@ If nil, the actual value will be returned.")
 (defsubst make-corba-typecode (kind &optional params)
   (cons kind params))
 
+
+(defun corba-typecode-p (x)
+  (and (consp x)
+       (keywordp (car x))))
+
+
 (defsubst corba-typecode-kind (tc)
-  (if (symbolp tc) tc (car tc)))
+  (car tc))
 
 (defsubst corba-typecode-params (tc)
-  (if (symbolp tc) nil (cdr tc)))
-
-(defsubst corba-lispy-name (string)
-  (cond ((symbolp string)
-	 string)
-	(t
-         (setq string (copy-sequence string))
-         (loop for c across-ref string
-               if (eq c ?_) do (setf c ?-))
-	 (intern string))))
+  (cdr tc))
 
 
 (defconst corba-tc-void '(:tk_void))
@@ -886,11 +887,14 @@ If nil, the actual value will be returned.")
 
 ;;;; CORBA::Any
 
+
 ;; Interface: corba-any
 (defun corba-any (typecode value)
-  (when (stringp typecode)
-    (setq typecode (corba-typecode typecode))
-    (assert typecode))
+  (cond ((stringp typecode)
+         (setq typecode (corba-typecode typecode)))
+        ((null typecode)
+         (setq typecode (corba-any-typecode value))))
+  (assert (keywordp (car-safe typecode)))
   `(any ,typecode ,value))
 
 
@@ -1144,22 +1148,32 @@ is excpected."
     ((0)				; No Exception
      (setf (corba-request-result req)
            (mapcar 'corba-unmarshal (corba-request-outparams req)))
-     t)
+     req)
     ((1)				; User Exception
      (setf (corba-request-exception req)
            (corba-unmarshal-except (corba-request-raises req)))
-     (setf (corba-request-result req) nil)
-     t)
+     req)
     ((2)				; System Exception
      (setf (corba-request-exception req)
            (corba-read-system-exception))
-     (setf (corba-request-result req) nil)
-     t)
+     req)
     ((3)				; Forward
      (setf (corba-object-forward (corba-request-object req))
 	   (corba-read-ior))
      (corba-request-send req)
      nil)))
+
+
+(defun corba-read-locatereply (req)
+  (let ((status (corba-read-ulong)))
+    (cond ((= status 2)
+           (setf (corba-object-forward (corba-request-object req))
+                 (corba-read-ior))
+           (corba-request-send req)
+           nil)
+          (t
+           (setf (corba-request-result req) status)
+           req))))
 
 
 (defun corba-get-next-respons-1 (client)
@@ -1182,27 +1196,17 @@ is excpected."
             ;; Ignore service context
             (corba-read-service-context))
           (let* ((request-id (corba-read-ulong))
-                 (req
-                  (loop for req in corba-waiting-requests
-                        if (= request-id (corba-request-req-id req))
-                        return req)))
-            (cond
-             (req
-              (setq corba-waiting-requests (delq req corba-waiting-requests))
-              (if (= msgtype 1)
-                  (and (corba-read-reply req)
-                       req)
-                (let ((status (corba-read-ulong)))
-                  (cond ((= status 2)
-                         (setf (corba-object-forward (corba-request-object req))
-                               (corba-read-ior))
-                         (corba-request-send req)
-                         nil)
-                        (t
-                         (setf (corba-request-result req) status)
-                         req)))))
-             (t
-              (message "Unexpected respons for id %s" request-id)))))
+                 (req (loop for req in corba-waiting-requests
+                            if (= request-id (corba-request-req-id req))
+                            return req)))
+            (cond (req
+                   (setq corba-waiting-requests (delq req corba-waiting-requests))
+                   (if (= msgtype 1)
+                       (corba-read-reply req)
+                     (corba-read-locatereply req)))
+                  (t
+                   (message "Unexpected respons for id %s" request-id)
+                   nil))))
          ((= msgtype 5)                 ;Close Connection
           (delete-process client)
           (error "Connection closed"))))))))
