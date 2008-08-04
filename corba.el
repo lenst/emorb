@@ -81,17 +81,6 @@ Used by ORBit for its cookie.")
   "*If non-nil, an explicit any struct will be returned for any result.
 If nil, the actual value will be returned.")
 
-
-;;;; Exceptions
-
-(put 'corba-system-exception 'error-conditions
-     '(corba-system-exception corba-exception error))
-(put 'corba-system-exception 'error-message "CORBA System Exception")
-
-(put 'corba-user-exception 'error-conditions
-     '(corba-user-exception corba-exception error))
-(put 'corba-user-exception 'error-message "CORBA User Exception")
-
 
 
 ;;;; Structures
@@ -298,6 +287,15 @@ If nil, the actual value will be returned.")
 (defsubst corba-read-ulong ()
   (corba-read-number 4 nil))
 
+(defun corba-read-ulong-split ()
+  ;; returns: (upper16 . lower16)
+  (corba-read-align 4)
+  (if (= corba-byte-order 0)
+      (cons (corba-read-ushort)
+            (corba-read-ushort))
+      (let ((lo (corba-read-ushort)))
+        (cons (corba-read-ushort) lo))))
+
 (defun corba-read-long ()
   (corba-read-number 4 t))
 
@@ -461,19 +459,21 @@ If nil, the actual value will be returned.")
 (defun corba-has-typecode-p (id)
   (gethash id corba-local-typecode-repository))
 
+
 (defun corba-add-typecode-with-id (id typecode &optional no-force)
   (or (if no-force (gethash id corba-local-typecode-repository))
       (setf (gethash id corba-local-typecode-repository) typecode)))
 
 
-
 (defun corba-kind-has-id-p (kind)
-  (memq kind '(:tk_struct :tk_enum :tk_objref :tk_alias :tk_union 
+  (memq kind '(:tk_struct :tk_enum :tk_objref :tk_alias :tk_union
                :tk_value :tk_value_box :tk_native :tk_local_interface
                :tk_except :tk_abstract_interface)))
-    
+
+
 (defconst corba-typecode-canonizers
   '((:tk_struct . corba-struct-canonize)
+    (:tk_except . corba-struct-canonize)
     (:tk_alias . corba-type-3-canonize)
     (:tk_union . corba-union-canonize)
     (:tk_value_box . corba-type-3-canonize)
@@ -786,8 +786,6 @@ If nil, the actual value will be returned.")
       (corba-marshal (aref struct i) (cadr m))
       (setq i (1+ i)))))
 
-(defalias 'corba-marshal-except #'corba-marshal-struct)
-
 
 (defun corba-unmarshal-struct (type)
   ;; type = (:tk_struct id name ((member-name type)*))
@@ -800,8 +798,6 @@ If nil, the actual value will be returned.")
       (aset result i (corba-unmarshal (cadr m)))
       (setq i (1+ i)))
     result))
-
-(defalias 'corba-unmarshal-except #'corba-unmarshal-struct)
 
 
 (defun corba-repoid-p (id)
@@ -827,6 +823,64 @@ If nil, the actual value will be returned.")
       result)))
 
 
+
+;;;; Exceptions
+
+;;; User Exceptions
+
+;; TypeCode: (:tk_except id name ((member-name type)*))
+
+;; Representation: (corba-user-exception id [[name key1 key2..] value1 value2..])
+;; Cdr suitable for signal data
+;; A condition-case var would then have the value:
+;;  (corba-user-exception ID [[name key1 key2..] value1 value2..])
+
+;;; System Exceptions
+;; Repr: (corba-system-exception id minor-upper minor-lower completed)
+;; where corba-system-exception = the symbol corba-system-exception
+;;       id = repository id
+;;       minor-upper = the upper 16bits of the minor code (= corba-omgvmcid-upper
+;;                              for standard minor codes)
+;;       minor-lower = the lower 16bits of the minor code
+;;       completed  = one of [:COMPLETED_YES :COMPLETED_NO :COMPLETED_MAYBE]
+
+
+(defconst corba-omgvmcid-upper #x4f4d)
+
+
+(put 'corba-system-exception 'error-conditions
+     '(corba-system-exception corba-exception error))
+(put 'corba-system-exception 'error-message "CORBA System Exception")
+
+(put 'corba-user-exception 'error-conditions
+     '(corba-user-exception corba-exception error))
+(put 'corba-user-exception 'error-message "CORBA User Exception")
+
+
+(defun corba-unmarshal-except (acceptable-typecodes)
+  (let ((id (corba-read-string))
+        tc)
+    ;; Find typecode
+    (while acceptable-typecodes
+      (let ((candidate (pop acceptable-typecodes)))
+        (when (equal id (cadr candidate))
+          (setq tc candidate
+                acceptable-typecodes nil))))
+    (if tc
+        (list 'corba-user-exception
+              id (corba-unmarshal-struct tc))
+      (list 'corba-system-exception
+            "IDL:omg.org/CORBA/UNKNOWN:1.0"
+            corba-omgvmcid-upper 1 :COMPLETED_YES))))
+
+
+(defun corba-read-system-exception ()
+  (let ((id (corba-read-string))
+        (minor (corba-read-ulong-split))
+        (completed (elt [:COMPLETED_YES :COMPLETED_NO :COMPLETED_MAYBE]
+                        (corba-read-ulong))))
+    (list 'corba-system-exception
+          id (car minor) (cdr minor) completed)))
 
 
 
@@ -1019,7 +1073,8 @@ If nil, the actual value will be returned.")
   (arguments nil)
   (req-id nil)
   (client nil)
-  (result nil))
+  (result nil)
+  (exception nil))
 
 (defvar corba-request-id-seq 0)
 (defvar corba-waiting-requests nil)
@@ -1041,24 +1096,14 @@ If nil, the actual value will be returned.")
 To get the response from the server use `corba-result' or
 `corba-next'. The result from the operation will be returned from
 `corba-result'. Several requests can be sent before the getting the
-response. 
+response.
 NO-RESPONSE true indicates to the server that no response
 is excpected."
   (let ((object (corba-request-object req)))
     (setq object (or (corba-object-forward object)
 		     object))
-    (condition-case exc
-        (corba-request-send-to req object no-response)
-     (system-exception
-       (setq object (corba-request-object req))
-       (cond ((and (corba-object-forward object)
-		   (member (car exc)
-			   '("IDL:omg.org/CORBA/OBJECT_NOT_EXIST:1.0"
-			     "IDL:omg.org/CORBA/COMM_FAILURE:1.0")))
-	      (setf (corba-object-forward object) nil)
-	      (corba-request-send-to req object no-response))
-	     (t
-	      (signal (car exc) (cdr exc))))))))
+    (corba-request-send-to req object no-response)))
+
 
 (defun corba-request-send-to (req object &optional no-response)
   (let* ((client (corba-get-connection
@@ -1101,15 +1146,15 @@ is excpected."
            (mapcar 'corba-unmarshal (corba-request-outparams req)))
      t)
     ((1)				; User Exception
-     (let* ((id (corba-read-string)))
-       (signal 'corba-user-exception
-               (cons id (corba-unmarshal (corba-typecode id))))))
+     (setf (corba-request-exception req)
+           (corba-unmarshal-except (corba-request-raises req)))
+     (setf (corba-request-result req) nil)
+     t)
     ((2)				; System Exception
-     (let* ((id (corba-read-string))
-	    (minor (corba-read-ulong))
-	    (status (corba-read-ulong)))
-       (signal 'corba-system-exception
-	       (list id minor status))))
+     (setf (corba-request-exception req)
+           (corba-read-system-exception))
+     (setf (corba-request-result req) nil)
+     t)
     ((3)				; Forward
      (setf (corba-object-forward (corba-request-object req))
 	   (corba-read-ior))
@@ -1192,7 +1237,10 @@ is excpected."
 ;; Interface: corba-result
 (defun corba-result (request)
   (corba-request-get-response request nil)
-  (corba-request-result request))
+  (let ((e (corba-request-exception request)))
+    (if e
+      (signal (car e) (cdr e))
+      (corba-request-result request))))
 
 
 (defun corba-request-invoke (req &optional flags)
@@ -1554,7 +1602,7 @@ The object has been narrowd to the NamingContextExt interface."
   "Create a request object for an operation on a proxy object.
 Two version of arglist for use with interface repository info or without:
 1. (op obj args..)
-2. (result-type op obj { :in type value | :inout type value | :out type }* 
+2. (result-type op obj { :in type value | :inout type value | :out type }*
            [ :raises exc-list ])
 Arglist 2 is for use without interface repository, all type information is
 included in the list."
@@ -1581,7 +1629,7 @@ included in the list."
                           (corba-opdef-name opdef)
                           (corba-opdef-inparams opdef)
                           (corba-opdef-outparams opdef)
-                          (corba-opdef-raises opdef)
+                          (mapcar #'corba-typecode (corba-opdef-raises opdef))
                           args)))
 
 
@@ -1617,10 +1665,10 @@ included in the list."
   "Invoke operation OP on object OBJ with arguments ARGS.
 Returns the list of result and out parameters.
 Use without interface repository information:
-\(:noir op obj result-type { :in type value | :inout type value | :out type }* 
+\(:noir op obj result-type { :in type value | :inout type value | :out type }*
            [ :raises exc-list ])
 alt:
-\(result-type op obj { :in type value | :inout type value | :out type }* 
+\(result-type op obj { :in type value | :inout type value | :out type }*
            [ :raises exc-list ]) "
   (corba-request-invoke
    (apply #'corba-object-create-request op obj args)))

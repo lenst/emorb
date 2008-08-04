@@ -20,7 +20,7 @@
 
 (:tk_local_interface id name)
 
-(:tk_except id name)
+(:tk_except id name ((member-name type)*))
 
 (:tk_abstract_interface id name)
 

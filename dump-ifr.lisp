@@ -51,7 +51,7 @@
                     ,@(case kind
                         ((:tk_alias :tk_value_box)
                          `(,(tc-dump (op:content_type tc))))
-                        ((:tk_struct)
+                        ((:tk_struct :tk_except)
                          (list (loop for i from 0 below (op:member_count tc)
                                      collect (list (op:member_name tc i)
                                                    (tc-dump (op:member_type tc i))))))
@@ -86,6 +86,7 @@
   ;; or "absolute_name", (> "type" typecode), ...
   (cond ((null item) nil)
         ((eql item 'contents) `(do-contents ,var))
+        ((keywordp item) (make-attribute-get item var))
         ((symbolp item) `',item)
         ((stringp item) (make-attribute-get item var))
         ((and (consp item) (member (car item) '(> @)))
@@ -157,8 +158,8 @@
 
 
 #|
+ (main "clorb:idl;CosNaming.idl" "corba-load-naming.el")
 
- (main "clorb:idl;cddr-01-queue.idl" "loadidl-cddr-01-queue.el")
  (main "clorb:idl;CosEventChannelAdmin.idl" "loadidl-CosEventChannelAdmin.el")
  (main "clorb:examples;hello;hello.idl" "loadidl-clorb_ex-hello.el")
  (main "clorb:idl;cddr-01-queue.idl" "loadidl-cddr_01-queue.el")
