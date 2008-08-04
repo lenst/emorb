@@ -62,7 +62,7 @@
                          (list (tc-dump (op:discriminator_type tc))
                                (op:default_index tc)
                                (loop for i from 0 below (op:member_count tc)
-                                  collect (list (op:member_label tc i)
+                                  collect (list (corba:any-value (op:member_label tc i))
                                                 (op:member_name tc i)
                                                 (tc-dump (op:member_type tc i)))))))))))
       (case kind

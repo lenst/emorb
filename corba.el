@@ -383,7 +383,8 @@ If nil, the actual value will be returned.")
                        corba-write-ior corba-read-ior)
 (corba-define-typecode :tk_union
                        (complex string string typecode long
-                                (sequence (2 string typecode))))
+                                (sequence (2 string typecode)))
+                       (corba-marshal-union) (corba-unmarshal-union))
 (corba-define-typecode :tk_enum
                        (complex string string
                                 (sequence string))
@@ -475,6 +476,7 @@ If nil, the actual value will be returned.")
 (defconst corba-typecode-canonizers
   '((:tk_struct . corba-struct-canonize)
     (:tk_except . corba-struct-canonize)
+    (:tk_union . corba-union-canonize)
     (:tk_alias . corba-type-3-canonize)
     (:tk_union . corba-union-canonize)
     (:tk_value_box . corba-type-3-canonize)
@@ -490,6 +492,23 @@ If nil, the actual value will be returned.")
                         (corba-typecode (cadr member))))
                 (nth 3 tc))))
 
+
+(defun corba-union-canonize (tc)
+  ;; (:tk_union id name discriminator-type default-index
+  ;;    ((member-label member-name member-type)*))
+  ;;  where default-index is index of member that is the default
+  ;;           or -1 if no default
+  ;;        member-label is of type discriminator-type
+  (list (car tc) (cadr tc) (nth 2 tc)   ; :tk_union id name
+        (corba-typecode (nth 3 tc))     ; discriminator-type
+        (nth 4 tc)                      ; default-index
+        (mapcar (lambda (member)
+                  (list (car member)    ; member-label
+                        (cadr member)   ; member-name
+                        (corba-typecode (nth 2 member))))
+                (nth 5 tc))))
+
+
 (defun corba-type-1-canonize (tc)
   (list* (car tc) (corba-typecode (cadr tc))
          (cddr tc)))
@@ -498,9 +517,6 @@ If nil, the actual value will be returned.")
   (list* (car tc) (cadr tc) (nth 2 tc)
          (corba-typecode (nth 3 tc))
          (nthcdr 4 tc)))
-
-(defun corba-union-canonize (tc)
-  (debug))
 
 
 (defun corba-typecode-canonize (tc)
@@ -514,23 +530,21 @@ If nil, the actual value will be returned.")
 (defun corba-typecode (typecode-or-id)
   "Returns canonical typecode"
   (cond ((stringp typecode-or-id)       ; id
-         (or (gethash typecode-or-id corba-local-typecode-repository)
-             (let ((tc (cons nil typecode-or-id)))
-                                        ; placeholder typecode
-               (puthash typecode-or-id tc corba-local-typecode-repository)
-               tc)))
+         (gethash typecode-or-id corba-local-typecode-repository))
         ((corba-kind-has-id-p (car typecode-or-id))
          (let* ((id (cadr typecode-or-id))
                 (old-tc (gethash id corba-local-typecode-repository)))
            (if (and old-tc (eq (car old-tc) (car typecode-or-id)))
                old-tc
-               (let ((tc (corba-typecode-canonize typecode-or-id)))
-                 (when old-tc
+               (progn
+                 (unless old-tc
+                   (let ((id (cadr typecode-or-id)))
+                     (setq old-tc (cons nil id))
+                     (puthash id old-tc corba-local-typecode-repository)))
+                 (let ((tc (corba-typecode-canonize typecode-or-id)))
                    (setcar old-tc (car tc))
                    (setcdr old-tc (cdr tc))
-                   (setq tc old-tc))
-                 (puthash id tc corba-local-typecode-repository )
-                 tc))))
+                   old-tc)))))
         (t
          (corba-typecode-canonize typecode-or-id))))
 
@@ -929,6 +943,84 @@ If nil, the actual value will be returned.")
     (if corba-explicit-any
         (corba-any tc (corba-unmarshal tc))
       (corba-unmarshal tc))))
+
+
+
+;;;; CORBA::Union
+
+;;; TypeCode
+;; (:tk_union id name discriminator-type default-index
+;;    ((member-label member-name member-type)*))
+;;  where default-index is index of member that is the default
+;;           or -1 if no default
+;;        member-label is of type discriminator-type
+
+;;; Mapping
+;; (any discriminator value)
+;; where discriminator is of type discriminator-type
+
+(defun corba-union-symbols (tc)
+  ;; => [:field1 :field2 ...]
+  (assert (memq (corba-typecode-kind tc) '(:tk_union)))
+  (corba-with-cached-meta tc
+    (apply 'vector
+           (mapcar (lambda (m) (corba-make-keyword (cadr m)))
+                   (nth 5 tc)))))
+
+(defun corba-new-union (tc member-name value)
+  (let* ((syms (corba-union-symbols tc))
+         (members (nth 5 tc))
+         (index (corba-vposq member-name syms)))
+    (assert index)
+    `(union ,(car (elt members index)) ,value)))
+
+
+(defun corba-union-p (x)
+  (and (consp x) (eq (car x) 'union)))
+
+(defun corba-union-discriminator (union)
+  (cadr union))
+
+(defun corba-union-value (union)
+  (car (cddr union)))
+
+
+(defun corba-marshal-union (val tc)
+  (assert (corba-union-p val))
+  (assert (eq (car tc) :tk_union))
+  (let ((discriminator-type (nth 3 tc))
+        (default-index (nth 4 tc))
+        (members (nth 5 tc))
+        (disc (corba-union-discriminator val))
+        (value (corba-union-value val)))
+    (let ((member-type nil) (i 0))
+      (dolist (m members)
+        (when (= i default-index)
+          (setq member-type (caddr m)))
+        (when (eql disc (car m))
+          (setq member-type (caddr m)))
+        (setq i (1+ i)))
+      (assert member-type)
+      (corba-marshal disc discriminator-type)
+      (corba-marshal value member-type))))
+
+
+(defun corba-unmarshal-union (tc)
+  (assert (eq (car tc) :tk_union))
+  (let ((discriminator-type (nth 3 tc))
+        (default-index (nth 4 tc))
+        (members (nth 5 tc)))
+    (let ((disc (corba-unmarshal discriminator-type))
+          (member-type nil)
+          (i 0))
+      (dolist (m members)
+        (when (= i default-index)
+          (setq member-type (caddr m)))
+        (when (eql disc (car m))
+          (setq member-type (caddr m)))
+        (setq i (1+ i)))
+      (assert member-type)
+      `(union ,disc ,(corba-unmarshal member-type)))))
 
 
 
@@ -1780,6 +1872,7 @@ alt:
     (module . corba-load-container)
     (type . corba-load-type)
     (struct . corba-load-type)
+    (union . corba-load-type)
     (exception . corba-load-type)
     (const . corba-load-const)
     (interface . corba-load-interface)
@@ -1916,7 +2009,7 @@ see corba-funcall for request-arglist. "
            (assert (consp tc))          ; should be tc
            (ecase (car tc)
              (:tk_struct (corba-new-struct tc fields))
-             (:tk_union  (debug)))))
+             (:tk_union  (apply #'corba-new-union tc fields)))))
         ((eq type :request)
          ;; op obj args..
          ;; result-type op obj args..

@@ -76,6 +76,90 @@
 
 
 
+;;;; Union
+
+
+(progn
+  (remhash "IDL:Simple/list:1.0" corba-local-typecode-repository)
+  (remhash "IDL:Simple/ToySexpr:1.0" corba-local-typecode-repository)
+
+  (corba-typecode
+   '(:tk_union "IDL:Simple/ToySexpr:1.0" "ToySexpr" (:tk_short) -1
+     ((1 "atom_val" (:tk_string 0))
+      (2 "list_val"
+       (:tk_alias "IDL:Simple/list:1.0" "list"
+                  (:tk_sequence "IDL:Simple/ToySexpr:1.0" 0))))))
+
+  (let* ((tc-alias (corba-typecode "IDL:Simple/list:1.0"))
+         (tc-seq   (nth 3 tc-alias))
+         (tc-union (nth 1 tc-seq)))
+    (assert (corba-typecode-p tc-union))
+    (assert (corba-union-symbols tc-union)
+            [:atom_val :list_val])))
+
+
+(let* ((tc (corba-typecode "IDL:Simple/ToySexpr:1.0"))
+       (a (corba-new-union tc :atom_val "Hello")))
+  (assert (eq (car-safe a) 'union))
+  (assert (eql (cadr a) 1))
+  (assert (equal (caddr a) "Hello")))
+
+
+(let ((a (corba-new "IDL:Simple/ToySexpr:1.0" :atom_val "Hello")))
+  (assert (eql (corba-union-discriminator a) 1))
+  (assert (equal (corba-union-value a) "Hello"))
+  (let ((s (corba-new "IDL:Simple/ToySexpr:1.0"
+                      :list_val (list a))))
+    (assert (eql (corba-union-discriminator s) 2))
+    (assert (equal (corba-union-value s) (list a)))))
+
+(let ((tc (corba-typecode "IDL:Simple/ToySexpr:1.0"))
+      (a (corba-new "IDL:Simple/ToySexpr:1.0" :atom_val "Hello")))
+  (let ((s (corba-new "IDL:Simple/ToySexpr:1.0"
+                      :list_val (list a))))
+    (corba-in-work-buffer
+      (corba-marshal a tc)
+      (goto-char (point-min))
+      (assert (eql (corba-read-short) 1))
+      (assert (equal (corba-read-string) "Hello"))
+      (goto-char (point-min))
+      (let ((u (corba-unmarshal tc)))
+        (assert (corba-union-p u))
+        (assert (equal (corba-union-value u) "Hello"))))))
+
+;; with default
+
+(progn
+  (corba-typecode
+   '(:tk_union "IDL:Simple/ToySexpr2:1.0" "ToySexpr2" (:tk_short) 1
+          ((1 "atom_val" (:tk_string 0))
+           (0 "list_val"
+            (:tk_alias "IDL:Simple/list2:1.0" "list"
+             (:tk_sequence "IDL:Simple/ToySexpr2:1.0" 0))))))
+  (let ((l (corba-new "IDL:Simple/ToySexpr2:1.0" :list_val nil)))
+    (assert (= (cadr l) 0))))
+
+(corba-typecode '(:tk_alias "IDL:Simple/list2:1.0" "list"
+                  (:tk_sequence "IDL:Simple/ToySexpr2:1.0" 0)))
+
+(let ((tc (corba-typecode "IDL:Simple/ToySexpr2:1.0"))
+      (l (corba-new "IDL:Simple/ToySexpr2:1.0" :list_val nil)))
+  (corba-in-work-buffer
+    (corba-marshal l tc)
+    (goto-char (point-min))
+    (let ((u (corba-unmarshal tc)))
+      (assert (corba-union-p u))
+      (assert (eql (corba-union-discriminator u) 0))
+      (assert (eq (corba-union-value u) nil))))
+  (corba-in-work-buffer
+    (corba-write-short 99)
+    (corba-marshal (list) (corba-typecode "IDL:Simple/list2:1.0"))
+    (goto-char (point-min))
+    (let ((u (corba-unmarshal tc)))
+      (assert (corba-union-p u))
+      (assert (/= (corba-union-discriminator u) 1))
+      (assert (eq (corba-union-value u) nil)))))
+
 ;;;; Exceptions
 
 ;;; CORBA Exceptions gets mapped to conditions...
