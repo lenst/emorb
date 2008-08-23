@@ -465,12 +465,9 @@ If nil, the actual value will be returned.")
 (defconst corba-tc-octet '(:tk_octet))
 (defconst corba-tc-any '(:tk_any))
 (defconst corba-tc-typecode '(:tk_typecode))
-
-(defconst corba-tc-string
-  (make-corba-typecode :tk_string '(0)))
-
+(defconst corba-tc-string '(:tk_string 0))
 (defconst corba-tc-object
-  (make-corba-typecode :tk_objref '("IDL:omg.org/CORBA/Object:1.0" "Object")))
+  '(:tk_objref "IDL:omg.org/CORBA/Object:1.0" "Object"))
 
 
 
@@ -1819,7 +1816,7 @@ included in the list."
       (let ((mode (pop params)))
         (assert (memq mode '(:in :inout :out :raises)))
         (cond ((eq mode :raises)
-               (setq raises (mapcar #'corba-typecode (pop params))))
+               (setq raises (mapcar #'corba-lookup-type (pop params))))
               (t
                (let ((type (corba-typecode (pop params))))
                  (unless (eq mode :in)
@@ -1918,7 +1915,6 @@ alt:
 (defun corba-opdef-from-desc (desc)
   (let ((name   (corba-get desc :name))
         (result (corba-get desc :result))
-        (parseq (corba-get-typecode "IDL:omg.org/CORBA/ParDescriptionSeq:1.0"))
         (inpars nil)
         (outpars nil))
     (unless (eq :tk_void (corba-typecode-kind result))
@@ -2147,6 +2143,83 @@ alt:
     () ())
    (operation "_non_existent" :op_normal (:tk_boolean)
     () () )))
+
+
+;; To support using corba-use-get-interface without configured repository
+(corba-typecode
+ '(:tk_struct "IDL:omg.org/CORBA/InterfaceDef/FullInterfaceDescription:1.0"
+ "FullInterfaceDescription"
+ (("name"
+   (:tk_alias "IDL:omg.org/CORBA/Identifier:1.0" "Identifier" (:tk_string 0)))
+  ("id"
+   (:tk_alias "IDL:omg.org/CORBA/RepositoryId:1.0" "RepositoryId"
+    (:tk_string 0)))
+  ("defined_in" "IDL:omg.org/CORBA/RepositoryId:1.0")
+  ("version"
+   (:tk_alias "IDL:omg.org/CORBA/VersionSpec:1.0" "VersionSpec"
+    (:tk_string 0)))
+  ("operations"
+   (:tk_alias "IDL:omg.org/CORBA/OpDescriptionSeq:1.0" "OpDescriptionSeq"
+    (:tk_sequence
+     (:tk_struct "IDL:omg.org/CORBA/OperationDescription:1.0"
+      "OperationDescription"
+      (("name" "IDL:omg.org/CORBA/Identifier:1.0")
+       ("id" "IDL:omg.org/CORBA/RepositoryId:1.0")
+       ("defined_in" "IDL:omg.org/CORBA/RepositoryId:1.0")
+       ("version" "IDL:omg.org/CORBA/VersionSpec:1.0")
+       ("result" (:tk_typecode))
+       ("mode"
+        (:tk_enum "IDL:omg.org/CORBA/OperationMode:1.0" "OperationMode"
+         ("OP_NORMAL" "OP_ONEWAY")))
+       ("contexts"
+        (:tk_alias "IDL:omg.org/CORBA/ContextIdSeq:1.0" "ContextIdSeq"
+         (:tk_sequence
+          (:tk_alias "IDL:omg.org/CORBA/ContextIdentifier:1.0"
+           "ContextIdentifier" "IDL:omg.org/CORBA/Identifier:1.0")
+          0)))
+       ("parameters"
+        (:tk_alias "IDL:omg.org/CORBA/ParDescriptionSeq:1.0"
+         "ParDescriptionSeq"
+         (:tk_sequence
+          (:tk_struct "IDL:omg.org/CORBA/ParameterDescription:1.0"
+           "ParameterDescription"
+           (("name" "IDL:omg.org/CORBA/Identifier:1.0") ("type" (:tk_typecode))
+            ("type_def" (:tk_objref "IDL:omg.org/CORBA/IDLType:1.0" "IDLType"))
+            ("mode"
+             (:tk_enum "IDL:omg.org/CORBA/ParameterMode:1.0" "ParameterMode"
+              ("PARAM_IN" "PARAM_OUT" "PARAM_INOUT")))))
+          0)))
+       ("exceptions"
+        (:tk_alias "IDL:omg.org/CORBA/ExcDescriptionSeq:1.0"
+         "ExcDescriptionSeq"
+         (:tk_sequence
+          (:tk_struct "IDL:omg.org/CORBA/ExceptionDescription:1.0"
+           "ExceptionDescription"
+           (("name" "IDL:omg.org/CORBA/Identifier:1.0")
+            ("id" "IDL:omg.org/CORBA/RepositoryId:1.0")
+            ("defined_in" "IDL:omg.org/CORBA/RepositoryId:1.0")
+            ("version" "IDL:omg.org/CORBA/VersionSpec:1.0")
+            ("type" (:tk_typecode))))
+          0)))))
+     0)))
+  ("attributes"
+   (:tk_alias "IDL:omg.org/CORBA/AttrDescriptionSeq:1.0" "AttrDescriptionSeq"
+    (:tk_sequence
+     (:tk_struct "IDL:omg.org/CORBA/AttributeDescription:1.0"
+      "AttributeDescription"
+      (("name" "IDL:omg.org/CORBA/Identifier:1.0")
+       ("id" "IDL:omg.org/CORBA/RepositoryId:1.0")
+       ("defined_in" "IDL:omg.org/CORBA/RepositoryId:1.0")
+       ("version" "IDL:omg.org/CORBA/VersionSpec:1.0") ("type" (:tk_typecode))
+       ("mode"
+        (:tk_enum "IDL:omg.org/CORBA/AttributeMode:1.0" "AttributeMode"
+         ("ATTR_NORMAL" "ATTR_READONLY")))))
+     0)))
+  ("base_interfaces"
+   (:tk_alias "IDL:omg.org/CORBA/RepositoryIdSeq:1.0" "RepositoryIdSeq"
+    (:tk_sequence "IDL:omg.org/CORBA/RepositoryId:1.0" 0)))
+  ("type" (:tk_typecode)))))
+
 
 
 ;;;; corba-new
