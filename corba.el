@@ -1889,7 +1889,8 @@ alt:
 
 (defun corba-get-typecode (id)
   (or (gethash id corba-local-typecode-repository)
-      (corba-ir-get-typecode id)))
+      (if corba-use-interface-repository
+          (corba-ir-get-typecode id))))
 
 
 (defun corba-ir-contents (container limit-type exclude-inherit)
