@@ -1373,9 +1373,15 @@ Result is the list of the values of the out parameters."
 
 (defun corba-reset-all ()
   (loop for c in (corba-get-clients)
-        do (delete-process c))
+     do (delete-process c))
   (setq corba-iiop-connections nil)
-  (setq corba-waiting-requests nil))
+  (setq corba-waiting-requests nil)
+  (when corba-orb
+    (let ((ir-list (plist-get (cdr corba-orb) :initial-references)))
+      (while ir-list
+        (let ((entry (car ir-list)))
+          (setcdr (cdr entry) nil))
+        (setq ir-list (cdr ir-list))))))
 
 
 
