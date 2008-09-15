@@ -140,6 +140,13 @@
       (ifr-dump-1 def))))
 
 
+(defun pp-tc (tc)
+  (let ((*tc-dumped* (make-hash-table :test #'equal))
+        (*print-case* :downcase))
+    (pprint (tc-dump tc)))
+  (values))
+  
+
 (defun main (file &optional output-file module-name)
   (when (and output-file (not module-name))
     (setq module-name (pathname-name output-file)))
@@ -163,6 +170,7 @@
  (main "clorb:idl;CosEventChannelAdmin.idl" "loadidl-CosEventChannelAdmin.el")
  (main "clorb:examples;hello;hello.idl" "loadidl-clorb_ex-hello.el")
  (main "clorb:idl;cddr-01-queue.idl" "loadidl-cddr_01-queue.el")
+ (main "clorb:idl;cddr-01-rest.idl" "loadidl-cddr_01-rest.el")
  (main "/Users/lenst/src/lisp/net/cddr/podcatch/pod.idl" "loadidl-podcatch.el")
 
 |#
