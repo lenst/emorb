@@ -33,7 +33,7 @@
                              :ir-object ,contained )))
            (condition-case err
                (car (corba-funcall "contents" object :dk_all t))
-             (error 
+             (error
               (unless (string-match "Undefined operation" (cadr err))
                 (warn "Error getting contents: %s" err))
               nil)))))))))
@@ -44,12 +44,14 @@
   (let* ((orb (widget-get widget :orb))
          (name (widget-get widget :ns-name))
          (context
-          (if name
-              (car (corba-funcall "resolve"
-                                  (widget-get (widget-get widget :parent)
-                                              :ns-context)
-                                  name))
-              (corba-get-ns))))
+          (if (null name)
+              (corba-get-ns)
+            (corba-narrow
+             (car (corba-funcall "resolve"
+                                 (widget-get (widget-get widget :parent)
+                                             :ns-context)
+                                 name))
+             "IDL:omg.org/CosNaming/NamingContext:1.0"))))
     (widget-put widget :ns-context context)
     context))
 
@@ -58,9 +60,7 @@
   (condition-case err
       (let* ((orb (widget-get widget :orb))
              (context (corba-browser-get-context widget)))
-        (if (and context
-                 (corba-typep context
-                              "IDL:omg.org/CosNaming/NamingContext:1.0"))
+        (if context
             (let  ((result (corba-funcall "list" context 100)))
               (when (second result)
                 (corba-funcall "destroy" (second result)))
@@ -81,7 +81,7 @@
     (error ;;corba-system-exception
      (warn "Can't expand node: %s" err)
      nil)))
-  
+
 
 
 
