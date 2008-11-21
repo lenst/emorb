@@ -35,32 +35,10 @@ Software Foundation raise funds for GNU development.''
 @comment  node-name,  next,  previous,  up
 
 @menu
-* Data Types::                  
 * Operations::                  
 * Obsolete::                    
 @end menu
 
-@node Data Types, Operations, Top, Top
-@comment  node-name,  next,  previous,  up
-@chapter Data Types
-
-@deftp {Data type} corba-request
-Describes a request (an operation on a CORBA object) to be sent to a
-remote server.  The request has attributes for object, operation,
-arguments, result, ...
-
-A @code{corba-request} can be created from an object with
-@code{corba-object-create-request} or directly with
-@code{make-corba-request}.
-@end deftp
-
-@deftp {Data type} corba-object
-An object reference to a CORBA object.  The object can be a nil object,
-recognized with the @code{corba-object-is-nil} predicate.  The type of
-the object can be checked with @code{corba-object-is-a}.  The expression
-@code{(corba-object-is-a obj "IDL:omg.org/CORBA/Object:1.0")} should
-always be true for any CORBA object @code{obj}.
-@end deftp
 
 
 @node Operations, Obsolete, Data Types, Top
@@ -289,5 +267,29 @@ ELISP> (corba-invoke ns "list" 100)
    (binding-type . 1)))
  [cl-struct-corba-object "" nil nil nil nil nil])
 @end example
+
+
+@node Data Types, Operations, Top, Top
+@comment  node-name,  next,  previous,  up
+@section Data Types
+
+@deftp {Data type} corba-request
+Describes a request (an operation on a CORBA object) to be sent to a
+remote server.  The request has attributes for object, operation,
+arguments, result, ...
+
+A @code{corba-request} can be created from an object with
+@code{corba-object-create-request} or directly with
+@code{make-corba-request}.
+@end deftp
+
+@deftp {Data type} corba-object
+An object reference to a CORBA object.  The object can be a nil object,
+recognized with the @code{corba-object-is-nil} predicate.  The type of
+the object can be checked with @code{corba-object-is-a}.  The expression
+@code{(corba-object-is-a obj "IDL:omg.org/CORBA/Object:1.0")} should
+always be true for any CORBA object @code{obj}.
+@end deftp
+
 
 @bye
