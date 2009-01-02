@@ -1,4 +1,4 @@
-;;; corba-browser.el -- Major mode for Clojure code
+;;; corba-browser.el -- Browse CORBA NameService and Interface Repository
 
 ;; Copyright (C) 2007, 2008 Lennart Staflin
 
@@ -136,4 +136,6 @@
 
 
 
+(provide 'corba-browser)
+
 ;;; corba-browser.el ends here

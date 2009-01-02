@@ -1,4 +1,4 @@
-;; CORBA Based Rest Interfaces
+;;;; crest.el -- CORBA Based Rest Interfaces
 
 (require 'corba)
 (require 'loadidl-cddr_01-rest)
@@ -64,3 +64,5 @@
 
 
 (provide 'crest)
+
+;;; crest.el ends here

@@ -33,8 +33,6 @@
 ;;;     (@ <string> form) -> list of representations ..
 
 
-(provide 'corba-meta)
-
 
 (defconst corba-ifr-repr-meta '(
 ;;("ValueMemberDef" (:dk_ValueMember) (valuemember ))
@@ -82,3 +80,8 @@
 ;;;     dk_Value, dk_ValueBox, dk_ValueMember,
 ;;;     dk_Native, dk_AbstractInterface, dk_LocalInterface
 ;;;   };
+
+
+(provide 'corba-meta)
+
+;;; corba-meta.el ends here

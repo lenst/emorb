@@ -1,4 +1,4 @@
-;;; corba-dump.el -- Major mode for Clojure code
+;;; corba-dump.el -- Create IDL library files
 
 ;; Copyright (C) 2007, 2008 Lennart Staflin
 
@@ -19,8 +19,6 @@
 ;; Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
 ;; Boston, MA 02110-1301, USA.
 
-
-(provide 'corba-dump)
 
 (require 'corba)
 (require 'corba-load-ifr)
@@ -136,5 +134,8 @@
 ;;; (corba-init '("-ORBInitRef NameService=corbaloc::localhost:4720/NameService"))
 ;;; (defvar ir (corba-resolve "ir"))
 ;;; (defvar mod (car (corba-funcall "lookup" ir "CLORB_EX")))
+
+
+(provide 'corba-dump)
 
 ;;; corba-dump.el ends here

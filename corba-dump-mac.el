@@ -20,10 +20,6 @@
 ;; Boston, MA 02110-1301, USA.
 
 
-
-
-(provide 'corba-dump-mac)
-
 (require 'corba)
 (require 'corba-meta)
 
@@ -68,5 +64,7 @@
          `(list ,@(mapcar #'corba-make-dumper corba-ifr-repr-meta))))
 
 
+
+(provide 'corba-dump-mac)
 
 ;;; corba-dump-mac.el ends here

@@ -53,8 +53,6 @@
 
 ;;; Code:
 
-(provide 'corba)
-
 (require 'cl)
 ;;(eval-when-compile (require 'cl))
 (eval-when-compile (load "cl-extra"))   ; This seems to fix some strange autoloading
@@ -2271,5 +2269,8 @@ Returns: request"
            (corba-request-send request oneway)
            request))))
 
+
 
+(provide 'corba)
+
 ;;; corba.el ends here
