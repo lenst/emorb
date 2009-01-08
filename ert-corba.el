@@ -79,9 +79,5 @@
 
 
 
-
-
-
-
 (provide 'ert-corba)
 ;;; ert-corba.el ends here

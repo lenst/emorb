@@ -560,17 +560,19 @@ If nil, the actual value will be returned.")
         ((corba-kind-has-id-p (car typecode-or-id))
          (let* ((id (cadr typecode-or-id))
                 (old-tc (gethash id corba-local-typecode-repository)))
-           (if (and old-tc (eq (car old-tc) (car typecode-or-id)))
-               old-tc
-               (progn
-                 (unless old-tc
-                   (let ((id (cadr typecode-or-id)))
-                     (setq old-tc (cons nil id))
-                     (puthash id old-tc corba-local-typecode-repository)))
+           (unless (and old-tc (eq (car old-tc) (car typecode-or-id)))
+             (unless old-tc
+               (let ((id (cadr typecode-or-id)))
+                 (setq old-tc (cons (car typecode-or-id) id))
+                 (puthash id old-tc corba-local-typecode-repository)))
+             (unwind-protect
                  (let ((tc (corba-typecode-canonize typecode-or-id)))
                    (setcar old-tc (car tc))
-                   (setcdr old-tc (cdr tc))
-                   old-tc)))))
+                   (setcdr old-tc (cdr tc)))
+               ;; if canonize fail, clobber old-tc
+               (when (stringp (cdr old-tc))
+                 (setcar old-tc nil))))
+           old-tc))
         (t
          (corba-typecode-canonize typecode-or-id))))
 
@@ -696,12 +698,13 @@ If nil, the actual value will be returned.")
         (corba-read-indirect-typecode)
         (let* ((params (get tk 'tk-params))
                (typecode (list tk))
+               (top-level (null corba-indirection-record))
                (corba-indirection-record
                 (cons (cons (+ (point) corba-encaps-start -4)
                             typecode)
                       corba-indirection-record)))
           (setcdr typecode (corba-read-spec params nil))
-          (if corba-intern-all-typecodes
+          (if (and top-level corba-intern-all-typecodes)
               (corba-typecode typecode)
             typecode)))))
 
