@@ -1,6 +1,6 @@
 ;;; corba.el --- A Client Side CORBA Implementation for Emacs
 
-;; Copyright (C) 1998--2008 Lennart Staflin
+;; Copyright (C) 1998--2009 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
 ;; Version: 
@@ -671,33 +671,6 @@ If nil, the actual value will be returned.")
                      corba-indirection-record)))
           (corba-write-spec *typecode-params*
                             (get kind 'tk-params)))))))
-
-
-(require 'ert)
-(deftest corba-write-recursive-typecode ()
-  (let* ((tc1 (list :tk_sequence nil 0))
-        (tc2 `(:tk_struct "IDL:foobar" "foobar"
-                          (("a" (:tk_long))
-                           ("b" ,tc1)))))
-    (setcar (cdr tc1) tc2)
-  (corba-in-work-buffer
-    (corba-write-typecode tc2))))
-(deftest corba-read-recursive-typecode ()
-  (let* ((tc1 (list :tk_sequence nil 0))
-        (tc2 `(:tk_struct "IDL:foobar" "foobar"
-                          (("a" (:tk_long))
-                           ("b" ,tc1)))))
-    (setcar (cdr tc1) tc2)
-  (corba-in-work-buffer
-    (corba-write-typecode tc2)
-    (goto-char (point-min))
-    (let ((tc (corba-read-typecode)))
-      (should (eq (car tc) :tk_struct))
-      (let* ((m (elt tc 3))
-             (b (elt m 1))
-             (tc1 (cadr b)))
-        (should (eq (car tc1) :tk_sequence))
-        (should (eq (cadr tc1) tc)))))))
 
 
 (defvar corba-intern-all-typecodes nil)
