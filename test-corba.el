@@ -3,79 +3,6 @@
 (require 'corba)
 
 
-;;;; Enum
-
-;; Enum constants are keywords
-
-;; Enum TC representation:
-;; (:tk_enum id name (member-name*))
-
-(let ((tc-e1
-       (corba-typecode '(:tk_enum "IDL:my-enum:1.0" "my-enum"
-                                  ("foo" "fie" "fumm")))))
-
-  (assert (equal (corba-enum-symbols tc-e1) '(:foo :fie :fumm)))
-
-  (corba-in-work-buffer
-    (corba-marshal :fie tc-e1)
-    (corba-marshal :fumm tc-e1)
-    (goto-char (point-min))
-    (assert (= (corba-read-ulong) 1))
-    (assert (eq (corba-unmarshal tc-e1) :fumm)))
-
-  (corba-in-work-buffer
-    (corba-write-typecode tc-e1)
-    (goto-char (point-min))
-    (assert (equal (corba-read-typecode) tc-e1))))
-
-;;;; Sequence and Array
-
-;;; Sequences are mapped to lists
-;;; Arrays mapped to vectors
-
-;;; TC representations:
-;; (:tk_sequence content-type length)
-;; (:tk_array content-type length)
-
-(let ((tc-seq `(:tk_sequence ,corba-tc-string 0))
-      (tc-arr `(:tk_array ,corba-tc-ulong 10)))
-  (let ((s1 '("hej" "hopp" "mopp"))
-        (a1 (make-vector 10 99)))
-    (dotimes (i 10)
-      (aset a1 i (+ (aref a1 i) i)))
-    (corba-in-work-buffer
-      (corba-marshal s1 tc-seq)
-      (corba-marshal a1 tc-arr)
-      (goto-char (point-min))
-      (let ((s2 (corba-unmarshal tc-seq))
-            (a2 (corba-unmarshal tc-arr)))
-        (assert (equal s2 s1))
-        (assert (equal a2 a1))
-        (list s2 a2)))))
-
-
-
-;;;; Struct
-
-(let ((tc-s1 (corba-typecode `(:tk_struct "IDL:my-struct:1.0" "my-struct"
-                                          (("a" ,corba-tc-string)
-                                           ("b" ,corba-tc-ulong))))))
-
-  (assert (equal (corba-struct-symbols tc-s1) [ "my-struct" :a :b]))
-  (let ((s (corba-new "IDL:my-struct:1.0" :a "hej" :b 12)))
-    (assert (equal (corba-get s :a) "hej"))
-    (assert (= (corba-get s :b) 12))
-    (corba-put s :b 13)
-    (assert (= (corba-get s :b) 13))
-    (corba-in-work-buffer
-      (corba-write-typecode tc-s1)
-      (corba-marshal s tc-s1)
-      (goto-char (point-min))
-      (assert (equal (corba-read-typecode) tc-s1))
-      (assert (equal (corba-unmarshal tc-s1) s)))))
-
-
-
 ;;;; Union
 
 
