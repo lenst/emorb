@@ -28,29 +28,58 @@
 
 (deftest corba-write-recursive-typecode ()
   (let* ((tc1 (list :tk_sequence nil 0))
-        (tc2 `(:tk_struct "IDL:foobar" "foobar"
-                          (("a" (:tk_long))
-                           ("b" ,tc1)))))
+         (tc2 `(:tk_struct "IDL:foobar" "foobar"
+                           (("a" (:tk_long))
+                            ("b" ,tc1)))))
     (setcar (cdr tc1) tc2)
-  (corba-in-work-buffer
-    (corba-write-typecode tc2))))
+    (corba-in-work-buffer
+      (corba-write-typecode tc2))))
+
+
 
 (deftest corba-read-recursive-typecode ()
+  ;; read a struct tc with a member of with same struct type
+  (let (encaps-start)
+    (corba-in-work-buffer
+      (corba-write-ulong (get :tk_struct 'tk-index))
+      (setq encaps-start (point))
+      (corba-write-ulong 0)                     ;len 
+      (corba-write-octet 1)                     ;byte order
+      (corba-write-ulong 1) (corba-write-octet 0) ;"" id 
+      (corba-write-ulong 1) (corba-write-octet 0) ;"" name
+      (corba-write-ulong 1)                       ; 1 member
+      (corba-write-string "a")
+      (corba-write-long -1)
+      (corba-write-long (- (point-min) (point))) ; point back to self
+      (let ((len (- (point) 9)))
+        (goto-char encaps-start)
+        (delete-char 4)
+        (corba-write-ulong len))
+      (goto-char (point-min))
+      (let ((tc (corba-read-typecode)))
+        (should (eq tc (cadr (car (elt tc 3)))))))))
+
+
+(deftest corba-read-recursive-typecode-2 ()
   (let* ((tc1 (list :tk_sequence nil 0))
-        (tc2 `(:tk_struct "IDL:foobar" "foobar"
-                          (("a" (:tk_long))
-                           ("b" ,tc1)))))
+         (tc2 `(:tk_struct "IDL:foobar" "foobar"
+                           (("a" (:tk_long))
+                            ("b" ,tc1)))))
     (setcar (cdr tc1) tc2)
-  (corba-in-work-buffer
-    (corba-write-typecode tc2)
-    (goto-char (point-min))
-    (let ((tc (corba-read-typecode)))
-      (should (eq (car tc) :tk_struct))
-      (let* ((m (elt tc 3))
-             (b (elt m 1))
-             (tc1 (cadr b)))
-        (should (eq (car tc1) :tk_sequence))
-        (should (eq (cadr tc1) tc)))))))
+    (corba-in-work-buffer
+      (corba-write-typecode tc1)
+      (goto-char (point-min))
+      (let ((tc (corba-read-typecode)))
+        (should (eq (car tc) :tk_sequence))
+        (let* ((s (cadr tc))            ;struct
+               (m (elt s 3))            ;members
+               (b (elt m 1))            ;b member
+               )
+          (should (eq (cadr b) tc)))))))
+
+
+
+
 
 
 

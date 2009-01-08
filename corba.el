@@ -250,14 +250,24 @@ If nil, the actual value will be returned.")
       (mapc el-cdr s)))
 
 
+;; offset to add to positions in encapsulation for indirection calculations
+(defvar corba-encaps-start 0)
+
 (defun corba-make-encapsulation (closure &rest args)
-  (corba-in-work-buffer
-    (insert 1)                        ; Byte order
-    (apply closure args)
-    (buffer-substring (point-min) (point-max))))
+  ;; For the corba-encaps-start to work, the point has to be correctly
+  ;; aligned already -- up to the caller. Should only be needed for
+  ;; typecode marshalling.
+  (let ((corba-encaps-start (+ corba-encaps-start (point) 3)))
+    (corba-in-work-buffer
+      (insert 1)                        ; Byte order
+      (apply closure args)
+      (buffer-substring (point-min) (point-max)))))
 
 
 (defun corba-write-encapsulation (func &rest args)
+  ;; Align to make sure corba-encaps-start calc in corba-make-encapsulation
+  ;; works.
+  (corba-write-align 4) 
   (corba-write-osequence
    (apply #'corba-make-encapsulation func args)))
 
@@ -339,11 +349,13 @@ If nil, the actual value will be returned.")
 
 
 (defun corba-in-encapsulation (obj closure &rest args)
-  (corba-in-work-buffer
-    (insert obj)
-    (goto-char (point-min))
-    (setq corba-byte-order (corba-read-octet))
-    (apply closure args)))
+  (let ((corba-encaps-start (+ (- (point) (length obj) 1)
+                               corba-encaps-start)))
+    (corba-in-work-buffer
+      (insert obj)
+      (goto-char (point-min))
+      (setq corba-byte-order (corba-read-octet))
+      (apply closure args))))
 
 
 
@@ -652,9 +664,9 @@ If nil, the actual value will be returned.")
 
 (defun corba-read-indirect-typecode ()
   (let* ((n (corba-read-ulong))
-         (pos (+ n (point) -4)))
+         (pos (+ n (point) corba-encaps-start -4)))
     (or (cdr (assq pos corba-indirection-record))
-        (error "MARSHAL error: invalid indirection"))))
+        (error "MARSHAL error: invalid indirection: %s, %s, %s" n (point) corba-encaps-start))))
 
 
 (defun corba-write-typecode (tc)
@@ -662,12 +674,12 @@ If nil, the actual value will be returned.")
     (if nested
         (let ((position (cdr nested)))
           (corba-write-ulong #xFFFFFFFF)
-          (corba-write-long (- position (point))))
+          (corba-write-long (- position (point) corba-encaps-start)))
       (let ((kind (corba-typecode-kind tc))
             (*typecode-params* (corba-typecode-params tc)))
         (corba-write-ulong (get kind 'tk-index))
         (let ((corba-indirection-record
-               (cons (cons tc (- (point) 4)) ; record where tc starts in buffer
+               (cons (cons tc (+ (point) corba-encaps-start -4)) ; record where tc starts in buffer
                      corba-indirection-record)))
           (corba-write-spec *typecode-params*
                             (get kind 'tk-params)))))))
@@ -685,7 +697,8 @@ If nil, the actual value will be returned.")
         (let* ((params (get tk 'tk-params))
                (typecode (list tk))
                (corba-indirection-record
-                (cons (cons (- (point) 4) typecode)
+                (cons (cons (+ (point) corba-encaps-start -4)
+                            typecode)
                       corba-indirection-record)))
           (setcdr typecode (corba-read-spec params nil))
           (if corba-intern-all-typecodes
