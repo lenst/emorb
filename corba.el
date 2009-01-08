@@ -603,7 +603,7 @@ If nil, the actual value will be returned.")
 (defun corba-write-spec (params pspec)
   (cond ((null pspec))
         ((numberp pspec)
-         (corba-marshal (elt *typecode-params* pspec) params))
+         (corba-marshal params (elt *typecode-params* pspec)))
         ((consp pspec)
          (case (car pspec)
            (complex
@@ -651,16 +651,53 @@ If nil, the actual value will be returned.")
 
 
 (defun corba-read-indirect-typecode ()
-  (debug))
-
+  (let* ((n (corba-read-ulong))
+         (pos (+ n (point) -4)))
+    (or (cdr (assq pos corba-indirection-record))
+        (error "MARSHAL error: invalid indirection"))))
 
 
 (defun corba-write-typecode (tc)
-  (let ((kind (corba-typecode-kind tc))
-	(*typecode-params* (corba-typecode-params tc)))
-    (corba-write-ulong (get kind 'tk-index))
-    (corba-write-spec *typecode-params*
-                      (get kind 'tk-params))))
+  (let ((nested (assq tc corba-indirection-record)))
+    (if nested
+        (let ((position (cdr nested)))
+          (corba-write-ulong #xFFFFFFFF)
+          (corba-write-long (- position (point))))
+      (let ((kind (corba-typecode-kind tc))
+            (*typecode-params* (corba-typecode-params tc)))
+        (corba-write-ulong (get kind 'tk-index))
+        (let ((corba-indirection-record
+               (cons (cons tc (- (point) 4)) ; record where tc starts in buffer
+                     corba-indirection-record)))
+          (corba-write-spec *typecode-params*
+                            (get kind 'tk-params)))))))
+
+
+(require 'ert)
+(deftest corba-write-recursive-typecode ()
+  (let* ((tc1 (list :tk_sequence nil 0))
+        (tc2 `(:tk_struct "IDL:foobar" "foobar"
+                          (("a" (:tk_long))
+                           ("b" ,tc1)))))
+    (setcar (cdr tc1) tc2)
+  (corba-in-work-buffer
+    (corba-write-typecode tc2))))
+(deftest corba-read-recursive-typecode ()
+  (let* ((tc1 (list :tk_sequence nil 0))
+        (tc2 `(:tk_struct "IDL:foobar" "foobar"
+                          (("a" (:tk_long))
+                           ("b" ,tc1)))))
+    (setcar (cdr tc1) tc2)
+  (corba-in-work-buffer
+    (corba-write-typecode tc2)
+    (goto-char (point-min))
+    (let ((tc (corba-read-typecode)))
+      (should (eq (car tc) :tk_struct))
+      (let* ((m (elt tc 3))
+             (b (elt m 1))
+             (tc1 (cadr b)))
+        (should (eq (car tc1) :tk_sequence))
+        (should (eq (cadr tc1) tc)))))))
 
 
 (defvar corba-intern-all-typecodes nil)
