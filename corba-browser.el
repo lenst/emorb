@@ -1,6 +1,6 @@
 ;;; corba-browser.el -- Browse CORBA NameService and Interface Repository
 
-;; Copyright (C) 2007, 2008 Lennart Staflin
+;; Copyright (C) 2007, 2008, 2009 Lennart Staflin
 
 ;; Author: Lennart Staflin <lenst@lysator.liu.se>
 
@@ -29,8 +29,7 @@
 
 
 (defun corba-browser-expand-ir (widget)
-  (let* ((orb (widget-get widget :orb) )
-         (parent (widget-get widget :parent))
+  (let* ((parent (widget-get widget :parent))
          (object (widget-get widget :ir-object)))
     (unless object
       (setq object (corba-get-ir))
@@ -53,7 +52,6 @@
              (let ((name (corba-get contained "name")))
                `(tree-widget :tag ,name
                              :expander corba-browser-expand-ir
-                             :orb ,orb
                              :ir-object ,contained )))
            (condition-case err
                (car (corba-funcall "contents" object :dk_all t))
@@ -65,8 +63,7 @@
 
 
 (defun corba-browser-get-context (widget)
-  (let* ((orb (widget-get widget :orb))
-         (name (widget-get widget :ns-name))
+  (let* ((name (widget-get widget :ns-name))
          (context
           (if (null name)
               (corba-get-ns)
@@ -82,8 +79,7 @@
 
 (defun corba-browser-expand-ns (widget)
   (condition-case err
-      (let* ((orb (widget-get widget :orb))
-             (context (corba-browser-get-context widget)))
+      (let* ((context (corba-browser-get-context widget)))
         (if context
             (let  ((result (corba-funcall "list" context 100)))
               (when (second result)
@@ -98,7 +94,7 @@
                        `(item ,(format "%s.%s" id kind))
                        `(tree-widget
                          :tag ,(format "%s.%s" id kind)
-                         :ns-name ,name :orb ,orb
+                         :ns-name ,name
                          :expander corba-browser-expand-ns
                          :has-children t ))))
                (first result)))))
@@ -124,13 +120,11 @@
                    `(tree-widget
                      :tag "NameService"
                      :expander corba-browser-expand-ns
-                     :has-children t
-                     :orb ,orb )
+                     :has-children t)
                    `(tree-widget
                      :tag "InterfaceRepository"
                      :expander corba-browser-expand-ir
-                     :has-children t
-                     :orb ,orb )) )
+                     :has-children t )) )
   (use-local-map widget-keymap)
   (widget-setup))
 
