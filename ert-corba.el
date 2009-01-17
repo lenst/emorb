@@ -122,6 +122,210 @@
 
 
 
+;;;; Union
+
+;;; Representation: (union <discriminator> <value>)
+
+;;; Readers:
+;;; corba-union-discriminator u => discriminator
+;;; corba-union-value u => value
+
+;;; Creator:
+;;;  corba-new repo-id-or-absolute-name label value
+;;; where
+;;;  label = keyword with name of union member
+;;;
+
+;;; TypeCode
+;;;
+;;; (:tk_union id name discriminator-type default-index
+;;;        ((member-label member-name member-type)*))
+;;;  where default-index is index of member that is the default
+;;;             or -1 if no default
+;;;        member-label is of type discriminator-type
+
+
+(defun corba-test-union-types ()
+  ;; Creates a recursive union type for use in test cases
+  (remhash "IDL:Simple/list:1.0" corba-local-typecode-repository)
+  (remhash "IDL:Simple/ToySexpr:1.0" corba-local-typecode-repository)
+  (corba-typecode
+   '(:tk_union "IDL:Simple/ToySexpr:1.0" "ToySexpr" (:tk_short) -1
+     ((1 "atom_val" (:tk_string 0))
+      (2 "list_val"
+       (:tk_alias "IDL:Simple/list:1.0" "list"
+                  (:tk_sequence "IDL:Simple/ToySexpr:1.0" 0)))))))
+
+
+(deftest corba-union-tc ()
+  (corba-test-union-types)
+  (let* ((tc-alias (corba-typecode "IDL:Simple/list:1.0"))
+         (tc-seq   (nth 3 tc-alias))
+         (tc-union (nth 1 tc-seq)))
+    (should (corba-typecode-p tc-union))
+    (should (equal (corba-union-symbols tc-union)
+                   [:atom_val :list_val]))))
+
+
+(deftest corba-union-new-union ()
+  (corba-test-union-types)
+  (let* ((tc (corba-typecode "IDL:Simple/ToySexpr:1.0"))
+         (a (corba-new-union tc :atom_val "Hello")))
+    (should (eq (car-safe a) 'union))
+    (should (eql (cadr a) 1))
+    (should (equal (caddr a) "Hello"))))
+
+
+(deftest corba-union-new ()
+  (corba-test-union-types)
+  (let ((a (corba-new "IDL:Simple/ToySexpr:1.0" :atom_val "Hello")))
+    (should (eql (corba-union-discriminator a) 1))
+    (should (equal (corba-union-value a) "Hello"))
+    (let ((s (corba-new "IDL:Simple/ToySexpr:1.0"
+                        :list_val (list a))))
+      (should (eql (corba-union-discriminator s) 2))
+      (should (equal (corba-union-value s) (list a))))))
+
+
+(deftest corba-union-marshal ()
+  (corba-test-union-types)
+  (let ((tc (corba-typecode "IDL:Simple/ToySexpr:1.0"))
+        (a (corba-new "IDL:Simple/ToySexpr:1.0" :atom_val "Hello")))
+    (let ((s (corba-new "IDL:Simple/ToySexpr:1.0"
+                        :list_val (list a))))
+      (corba-in-work-buffer
+        (corba-marshal a tc)
+        (goto-char (point-min))
+        (should (eql (corba-read-short) 1))
+        (should (equal (corba-read-string) "Hello"))
+        (goto-char (point-min))
+        (let ((u (corba-unmarshal tc)))
+          (should (corba-union-p u))
+          (should (equal (corba-union-value u) "Hello")))))))
+
+
+;; with default
+
+(defun corba-test-union-types-with-default ()
+  ;; Creates a recursive union type for use in test cases
+  (remhash "IDL:Simple/list2:1.0" corba-local-typecode-repository)
+  (remhash "IDL:Simple/ToySexpr2:1.0" corba-local-typecode-repository)
+  (corba-typecode
+   '(:tk_union "IDL:Simple/ToySexpr2:1.0" "ToySexpr2" (:tk_short) 1
+          ((1 "atom_val" (:tk_string 0))
+           (0 "list_val"
+            (:tk_alias "IDL:Simple/list2:1.0" "list"
+             (:tk_sequence "IDL:Simple/ToySexpr2:1.0" 0)))))))
+
+
+(deftest corba-union-simple-default ()
+  (corba-test-union-types-with-default)
+  (let ((l (corba-new "IDL:Simple/ToySexpr2:1.0" :list_val nil)))
+    (should (= (cadr l) 0))))
+
+
+(deftest corba-union-marshal-default ()
+  (corba-test-union-types-with-default)
+  (let ((tc (corba-typecode "IDL:Simple/ToySexpr2:1.0"))
+        (l (corba-new "IDL:Simple/ToySexpr2:1.0" :list_val nil)))
+    (corba-in-work-buffer
+      (corba-marshal l tc)
+      (goto-char (point-min))
+      (let ((u (corba-unmarshal tc)))
+        (should (corba-union-p u))
+        (should (eql (corba-union-discriminator u) 0))
+        (should (eq (corba-union-value u) nil))))
+    (corba-in-work-buffer
+      (corba-write-short 99)
+      (corba-marshal (list) (corba-typecode "IDL:Simple/list2:1.0"))
+      (goto-char (point-min))
+      (let ((u (corba-unmarshal tc)))
+        (should (corba-union-p u))
+        (should (/= (corba-union-discriminator u) 1))
+        (should (eq (corba-union-value u) nil)))))  )
+
+
+
+;;;; ANY
+
+;;; Repr: (any <typecode> <value>)
+
+;;; Reader:
+;;;  corba-any-typecode any => tc
+;;;  corba-any-value any => value
+;;; Accessors:
+;;;  corba-get any :any-value => value
+;;;  corba-get any :any-typecode => tc
+;;; 
+
+;;; TyepCode: (:tk_any)
+
+(deftest corba-any ()
+  (let ((any (corba-any corba-tc-string "hello")))
+    (should (equal (corba-any-value any) "hello"))
+    (should (equal (corba-get any :any-value) "hello"))
+    (corba-put any :any-value "fisk")
+    (should (equal (corba-get any :any-value) "fisk"))
+    (should (equal (corba-get corba-tc-string :length) 0))
+    (should (equal (corba-get corba-tc-object :name) "Object"))))
+
+
+
+;;;; Exceptions
+
+;;; CORBA Exceptions gets mapped to conditions...
+;; CORBA User Exceptions becomes corba-user-exception condition
+;;  and data for the condition is (id member-struct)
+;; CORBA System Exception becomes corba-system-exception
+;;  and data for the condition is (id minor-upper16 minor-lower16 completion-status)
+
+;;; TypeCode representation:
+;; (:tk_except id name ((member-name type)*))
+
+
+(deftest corba-user-exception ()
+  (let ((tc-e1 (corba-typecode `(:tk_except "IDL:my-except:1.0" "my-except"
+                                            (("code" ,corba-tc-ulong))))))
+
+    ;; marshal/unmarshal expception typecode
+    (corba-in-work-buffer
+      (corba-write-typecode tc-e1)
+      (goto-char (point-min))
+      (should (equal (corba-read-typecode) tc-e1)))
+
+    ;; Unmarshalling exception
+    (corba-in-work-buffer
+      ;; exception representation
+      (corba-write-string (nth 1 tc-e1))
+      (corba-write-ulong 789)
+      (goto-char (point-min))
+      (let ((e (corba-unmarshal-except (list tc-e1))))
+        (should (equal e `(corba-user-exception
+                           ,(nth 1 tc-e1) ;id
+                           [[ "my-except" :code] 789]))))
+
+      ;; unknown user exception, read same exception, but not listed as valid
+      (goto-char (point-min))
+      (let ((e (corba-unmarshal-except nil)))
+        (should (equal e `(corba-system-exception
+                           "IDL:omg.org/CORBA/UNKNOWN:1.0"
+                           ,corba-omgvmcid-upper 1 :COMPLETED_YES)))))))
+
+
+(deftest corba-system-exception ()
+  (corba-in-work-buffer
+    (corba-write-string "IDL:omg.org/CORBA/BAD_PARAM:1.0")
+    (corba-write-align 4)
+    (corba-write-short 234)
+    (corba-write-short corba-omgvmcid-upper)
+    (corba-write-ulong 2)
+    (goto-char (point-min))
+    (let ((s (corba-read-system-exception)))
+      (should (equal s `(corba-system-exception "IDL:omg.org/CORBA/BAD_PARAM:1.0"
+                                                ,corba-omgvmcid-upper 234
+                                                :COMPLETED_MAYBE))))))
+
+
 ;;;; Recursive TypeCodes
 
 (deftest corba-write-recursive-typecode ()
