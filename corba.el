@@ -31,7 +31,7 @@
 ;;; TODO:
 
 ;; Marshaling code for: longlong, ulonglong, floats, fixed,
-;; union, array, wchar, wstring
+;; wchar, wstring
 
 ;; How should overflow in long/ulong be handled?
 ;; -> going to float maybe
@@ -2259,7 +2259,7 @@ Possible kinds objects are struct, union, request.
 Struct: TYPE = repo-id or absolute name
         FIELDS = { slot-key value }*
 Union:  TYPE = repo-id or absolute name
-        FIELDS = descriminatior-value union-value
+        FIELDS = descriminatior-label union-value
 Request: TYPE = :request
         FIELDS = request-arglist
 see corba-funcall for request-arglist. "
