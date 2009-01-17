@@ -130,6 +130,45 @@
 
 
 
+;;;; Menu support
+
+(defun corba-browser-node-on-line ()
+  (let ((ol (overlays-in (line-beginning-position) (line-end-position)))
+        (result nil))
+    (while (and ol (not result))
+      (setq result (overlay-get (car ol) 'button)
+            ol (cdr ol)))
+    (and result (widget-get result :node))))
+
+
+(defun corba-browser-object-on-line ()
+  (let* ((node (corba-browser-node-on-line))
+         (name (widget-value node))
+         (context (corba-browser-get-context node)))
+    (setq context (corba-narrow context "::CosNaming::NamingContextExt"))
+    (car (corba-funcall "resolve_str" context name))))
+
+(defun corba-browser-object-browser (object)
+  (pop-to-buffer (get-buffer-create "*Object Browser*"))
+  (kill-all-local-variables)
+  (let ((inhibit-read-only t))
+    (erase-buffer))
+  (remove-overlays)
+  (widget-insert "CORBA Object Browser\n\n")
+  (let ((orb (corba-init)))
+    (widget-insert "RepositoryID: " (corba-object-id object))
+    (widget-insert "\nHost: " (corba-object-host object))
+    (widget-insert "\nPort: " (format "%d" (corba-object-port object))))
+  (widget-insert "\n\n")
+  (widget-setup))
+
+
+(defun corba-browser-show-object ()
+  (interactive)
+  (corba-browser-object-browser (corba-browser-object-on-line)))
+
+
+
 (provide 'corba-browser)
 
 ;;; corba-browser.el ends here
