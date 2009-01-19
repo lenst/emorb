@@ -63,6 +63,47 @@
 
 
 
+;;;; Sexp Access
+
+
+(defun crest-elems (s k)
+  (let ((result nil))
+    (dolist (x (cdr s))
+      (if (and (consp x) (eq k (car x)))
+          (push x result)))
+    (nreverse result)))
+
+
+(defun crest-elem1 (s k)
+  (cond ((numberp k) (nth k s))
+        ((vectorp k)
+         (if (> (length k) 1)
+             (mapcar (lambda (e) (crest-elemv e k 1))
+                     (crest-elems s (aref k 0)))
+             (crest-elems s (aref k 0))))
+        ((eq (car s) k) s)
+        (:else
+         (while (and (consp (setq s (cdr s)))
+                     (not (and (consp (car s))
+                               (eq k (caar s)) ))))
+         (car s))))
+
+
+(defun crest-elemv (s v &optional start)
+  (dotimes (i (length v) s)
+    (unless (and start (< i start))
+      (setq s (crest-elem1 s (aref v i))))))
+
+
+(defun crest-elem (s k &rest more)
+  "Get an element from a (tagged) list structure."
+  (let ((e (crest-elem1 s k)))
+    (if more
+        (and e (apply #'crest-elem e more))  
+        e)))
+
+
+
 (provide 'crest)
 
 ;;; crest.el ends here
