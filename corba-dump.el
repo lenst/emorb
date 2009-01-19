@@ -8,12 +8,12 @@
 ;; modify it under the terms of the GNU General Public License
 ;; as published by the Free Software Foundation; either version 3
 ;; of the License, or (at your option) any later version.
-;; 
+;;
 ;; This program is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
-;; 
+;;
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs; see the file COPYING.  If not, write to the
 ;; Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
@@ -31,18 +31,14 @@
 
 ;;;; TypeCode Dumping
 
+;;; Create a version of typecode representations that is suitable to
+;;; be stored in a file. This includes dealing with recursive
+;;; typecodes by replacing already dumped typecodes with the
+;;; repository ID.
 
-(defvar *tc-dumped* nil)
-
-
-;;; (defconst corba-typecode-canonizers
-;;;   '((:tk_struct . corba-struct-canonize)
-;;;     (:tk_alias . corba-type-3-canonize)
-;;;     (:tk_union . corba-union-canonize)
-;;;     (:tk_value_box . corba-type-3-canonize)
-;;;     (:tk_sequence . corba-type-1-canonize)
-;;;     (:tk_array . corba-type-1-canonize)))
-
+;; Hash table of already dumped typecodes.
+;; Bind it dynamically while dumping.
+(defvar corba-tc-dump nil)
 
 
 (defun corba-uncanonize-typecode (tc)
@@ -54,22 +50,34 @@
       (fset 'corba-typecode old))))
 
 
+;; Main entry point to dump a typecode.
 (defun corba-tc-dump (tc)
-  (if (not *tc-dumped*)
+  (if (not corba-tc-dump)
       tc
       (let ((kind (corba-typecode-kind tc)))
-        (if (corba-kind-has-id-p kind) 
+        (if (corba-kind-has-id-p kind)
             (let ((id (cadr tc)))
-              (if (gethash id *tc-dumped*)
+              (if (gethash id corba-tc-dump)
                   id
-                  (let ((repr (corba-uncanonize-typecode tc)))
-                    (puthash id repr *tc-dumped*)
-                    repr)))
+                  (progn
+                    (puthash id t corba-tc-dump)
+                    (corba-uncanonize-typecode tc))))
             (corba-uncanonize-typecode tc)))))
 
 
 
 ;;;; Repository Dumping
+
+;;; Dump the contents of a remote interface repository.
+
+;;; Create a file containing a representation of a interface
+;;; repository object (e.g. a module or interface). When the file is
+;;; loaded (or required) the type information in the repository object
+;;; becomes available to corba.el.
+
+;;; The representation used is described in corba-meta.el
+;;; The function `corba-load-repository' makes the types and interfaces
+;;; in a interface repository representation available for use.
 
 
 (defun corba-dump-contents (def)
@@ -94,12 +102,13 @@
 
 
 (defun corba-ir-dump (def)
-  (let ((*tc-dumped* (make-hash-table :test #'equal)))
+  ;; Returns a representation of the interface repository object DEF.
+  (let ((corba-tc-dump (make-hash-table :test #'equal)))
     (corba-ir-dump-1 def)))
 
 
-
 (defun corba-ir-module-alist ()
+  ;; Returns an alist of module names in the configured interface repository.
   (corba-init)
   (let ((modules (car (corba-funcall "contents" (corba-get-ir) :dk_Module t))))
     (mapcar (lambda (m)
@@ -107,10 +116,23 @@
             modules)))
 
 
+(defun corba-repository-module-base-name (module)
+  ;; Convert module or interface name to name for emacs module.
+  (replace-regexp-in-string
+   "::" "-"
+   (format "loadidl-%s" (downcase (or module "repo")))))
+
+
 (defun corba-make-loadidl (module)
+  "Make a representation of a module in the interface repository.
+This representation will appear in a buffer that can be saved to a file
+and later loaded into Emacs to make the types and interfaces in the module
+available.
+
+An interface repository must be configured."
   (interactive (list (completing-read "Module: " (corba-ir-module-alist))))
   (message "Module=%s" module)
-  (let* ((name (format "loadidl-%s" (downcase (or module "repo"))))
+  (let* ((name (corba-repository-module-base-name module))
          (file-name (format "%s.el" name))
          (irobj (if module
                     (or (car (corba-funcall "lookup" (corba-get-ir) module))
@@ -128,13 +150,6 @@
                     name file-name))
     (set-buffer-modified-p nil)))
 
-
-
-
-
-;;; (corba-init '("-ORBInitRef NameService=corbaloc::localhost:4720/NameService"))
-;;; (defvar ir (corba-resolve "ir"))
-;;; (defvar mod (car (corba-funcall "lookup" ir "CLORB_EX")))
 
 
 (provide 'corba-dump)
