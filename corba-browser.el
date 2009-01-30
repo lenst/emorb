@@ -52,7 +52,8 @@
              (let ((name (corba-get contained "name")))
                `(tree-widget :tag ,name
                              :expander corba-browser-expand-ir
-                             :ir-object ,contained )))
+                             :ir-object ,contained
+                             :has-object t)))
            (condition-case err
                (car (corba-funcall "contents" object :dk_all t))
              (error
@@ -63,18 +64,19 @@
 
 
 (defun corba-browser-get-context (widget)
-  (let* ((name (widget-get widget :ns-name))
-         (context
-          (if (null name)
-              (corba-get-ns)
-            (corba-narrow
-             (car (corba-funcall "resolve"
-                                 (widget-get (widget-get widget :parent)
-                                             :ns-context)
-                                 name))
-             "IDL:omg.org/CosNaming/NamingContext:1.0"))))
-    (widget-put widget :ns-context context)
-    context))
+  (or (widget-get widget :ns-context)
+      (let* ((name (widget-get widget :ns-name))
+             (context
+              (if (null name)
+                  (corba-get-ns)
+                (corba-narrow
+                 (car (corba-funcall "resolve"
+                                     (widget-get (widget-get widget :parent)
+                                                 :ns-context)
+                                     name))
+                 "IDL:omg.org/CosNaming/NamingContext:1.0"))))
+        (widget-put widget :ns-context context)
+        context)))
 
 
 (defun corba-browser-expand-ns (widget)
@@ -91,10 +93,10 @@
                         (id   (corba-get (first name) :id))
                         (kind (corba-get (first name) :kind)))
                    (if (eql type :nobject)
-                       `(item ,(format "%s.%s" id kind))
+                       `(item :has-object t :ns-name ,name ,(format "%s.%s" id kind))
                        `(tree-widget
                          :tag ,(format "%s.%s" id kind)
-                         :ns-name ,name
+                         :ns-name ,name :has-object t
                          :expander corba-browser-expand-ns
                          :has-children t ))))
                (first result)))))
@@ -103,6 +105,10 @@
      nil)))
 
 
+(defvar corba-browser-keymap
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map widget-keymap)
+    map))
 
 
 (defun corba-browser ()
@@ -125,12 +131,13 @@
                      :tag "InterfaceRepository"
                      :expander corba-browser-expand-ir
                      :has-children t )) )
-  (use-local-map widget-keymap)
+  (use-local-map corba-browser-keymap)
   (widget-setup))
 
 
 
 ;;;; Menu support
+
 
 (defun corba-browser-node-on-line ()
   (let ((ol (overlays-in (line-beginning-position) (line-end-position)))
@@ -141,12 +148,34 @@
     (and result (widget-get result :node))))
 
 
+(defun corba-browser-node-has-object-p (node)
+  (and node
+       (if (widget-value node)          ; leaf?
+           (widget-get node :has-object)
+         (widget-get (widget-get node :parent) :has-object))))
+
+(defun corba-browser-pos-has-object-p ()
+  (corba-browser-node-has-object-p (corba-browser-node-on-line)))
+
+
 (defun corba-browser-object-on-line ()
   (let* ((node (corba-browser-node-on-line))
-         (name (widget-value node))
-         (context (corba-browser-get-context node)))
-    (setq context (corba-narrow context "::CosNaming::NamingContextExt"))
-    (car (corba-funcall "resolve_str" context name))))
+         (widget (widget-get node :parent))
+         (name (widget-value node)))
+    (or (widget-get widget :ir-object)
+        (let ((context (corba-browser-get-context (widget-get widget :parent))))
+          (car (corba-funcall "resolve" context
+                              (widget-get (if name ;leaf
+                                              node widget)
+                                          :ns-name)))) )))
+
+
+(easy-menu-define corba-browser-menu
+  corba-browser-keymap
+  "Menu for CORBA Browser"
+  '("Browser"
+    ["Show Object" corba-browser-show-object (corba-browser-pos-has-object-p)]))
+
 
 (defun corba-browser-object-browser (object)
   (pop-to-buffer (get-buffer-create "*Object Browser*"))

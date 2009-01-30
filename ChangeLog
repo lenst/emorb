@@ -1,3 +1,17 @@
+2009-01-30  Lennart Staflin  <lenst@lysator.liu.se>
+
+	* corba-browser.el (corba-browser-node-on-line)
+	(corba-browser-node-has-object-p)
+	(corba-browser-pos-has-object-p, corba-browser-object-on-line):
+	new functions for getting information from the tree given buffer pos
+	(corba-browser-object-browser): new func
+	(corba-browser-keymap): new keymap
+	(corba-browser-menu): new menu keymap
+	(corba-browser-show-object): new command
+	(corba-browser-expand-ir): add :has-object to widget
+	(corba-browser-get-context): fixed
+	(corba-browser-expand-ns): add :has-object and :ns-name
+
 2008-07-27  Lennart Staflin  <lenst@lysator.liu.se>
 
 	* corba.el (corba-locate): remove
