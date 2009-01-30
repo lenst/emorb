@@ -1859,9 +1859,6 @@ included in the list."
   "Invoke operation OP on object OBJ with arguments ARGS.
 Returns the list of result and out parameters.
 Use without interface repository information:
-\(:noir op obj result-type { :in type value | :inout type value | :out type }*
-           [ :raises exc-list ])
-alt:
 \(result-type op obj { :in type value | :inout type value | :out type }*
            [ :raises exc-list ]) "
   (corba-request-invoke
