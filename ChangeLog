@@ -1,3 +1,8 @@
+2009-02-23  Lennart Staflin  <lenst@lysator.liu.se>
+
+	* corba-browser.el (corba-browser-ping-object): new
+	(corba-browser-menu): added "Ping Object"
+
 2009-01-30  Lennart Staflin  <lenst@lysator.liu.se>
 
 	* corba-browser.el (corba-browser-node-on-line)

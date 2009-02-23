@@ -174,7 +174,8 @@
   corba-browser-keymap
   "Menu for CORBA Browser"
   '("Browser"
-    ["Show Object" corba-browser-show-object (corba-browser-pos-has-object-p)]))
+    ["Show Object" corba-browser-show-object (corba-browser-pos-has-object-p)]
+    ["Ping Object" corba-browser-ping-object (corba-browser-pos-has-object-p)]))
 
 
 (defun corba-browser-object-browser (object)
@@ -196,6 +197,14 @@
   (interactive)
   (corba-browser-object-browser (corba-browser-object-on-line)))
 
+
+(defun corba-browser-ping-object ()
+  (interactive)
+  (let* ((obj (corba-browser-object-on-line))
+         (pong (corba-funcall "_non_existent" obj)))
+    (if (car pong)
+        (message "Object non-existent")
+        (message "PONG!"))))
 
 
 (provide 'corba-browser)
