@@ -70,7 +70,7 @@
 
 ;;; Dump the contents of a remote interface repository.
 
-;;; Create a file containing a representation of a interface
+;;; Create a file containing a representation of an interface
 ;;; repository object (e.g. a module or interface). When the file is
 ;;; loaded (or required) the type information in the repository object
 ;;; becomes available to corba.el.
